@@ -4,9 +4,12 @@
   "type": "module",
   "scripts": {
     "build": "react-router build",
-    "dev": "react-router dev",
+    "dev": "npm run copy-wasm && react-router dev",
     "start": "react-router-serve ./build/server/index.js",
-    "typecheck": "react-router typegen && tsc"
+    "typecheck": "react-router typegen && tsc",
+    "build:wasm": "./build_wasm.sh",
+    "build:all": "npm run build:wasm && npm run build",
+    "copy-wasm": "node copy-wasm.js"
   },
   "dependencies": {
     "@react-router/node": "^7.2.0",

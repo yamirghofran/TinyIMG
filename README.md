@@ -1,100 +1,139 @@
-# Welcome to React Router!
+# TinyImg - Image Manipulation with WebAssembly
 
-A modern, production-ready template for building full-stack React applications using React Router.
-
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/remix-run/react-router-templates/tree/main/default)
+TinyImg is a web-based image manipulation application that leverages WebAssembly for high-performance image transformations. The application allows users to upload images, apply various transformations using matrix operations, and download the compressed results.
 
 ## Features
 
-- 🚀 Server-side rendering
-- ⚡️ Hot Module Replacement (HMR)
-- 📦 Asset bundling and optimization
-- 🔄 Data loading and mutations
-- 🔒 TypeScript by default
-- 🎉 TailwindCSS for styling
-- 📖 [React Router docs](https://reactrouter.com/)
+- **Image Upload**: Drag and drop or select images from your device
+- **Real-time Transformations**: Apply and preview transformations instantly
+- **Matrix-based Operations**:
+  - Rotation (any angle)
+  - Scaling (resize by percentage)
+  - Flipping (horizontal/vertical mirroring)
+  - Warping (perspective shifts)
+- **Compression Options**:
+  - Adjustable quality level
+  - Multiple output formats (JPEG, PNG, WebP)
+- **High Performance**: C code compiled to WebAssembly for efficient processing
 
-## Getting Started
+## Technology Stack
 
-### Installation
+- **Frontend**: React.js with React Router
+- **Backend Logic**: C programming language compiled to WebAssembly (WASM)
+- **Image Rendering**: HTML5 Canvas
+- **Math Operations**: Linear algebra matrix transformations
 
-Install the dependencies:
+## Project Structure
+
+```
+tinyimg/
+├── app/                    # React frontend
+│   ├── components/         # React components
+│   ├── styles/             # CSS styles
+│   └── wasm/               # WebAssembly loader
+├── c_src/                  # C source code
+│   ├── include/            # Header files
+│   └── src/                # Implementation files
+├── public/                 # Static assets
+│   └── wasm/               # Compiled WebAssembly files
+└── README.md               # Project documentation
+```
+
+## Setup and Installation
+
+### Prerequisites
+
+- Node.js (v14 or later)
+- Emscripten (for compiling C to WebAssembly)
+
+### Building the WebAssembly Module
+
+1. Install Emscripten following the [official instructions](https://emscripten.org/docs/getting_started/downloads.html)
+2. Navigate to the `c_src` directory
+3. Run the build command:
+
+```bash
+cd c_src
+make
+```
+
+This will compile the C code to WebAssembly and place the output in the `public/wasm` directory.
+
+### Running the Frontend
+
+1. Install dependencies:
 
 ```bash
 npm install
 ```
 
-### Development
-
-Start the development server with HMR:
+2. Start the development server:
 
 ```bash
 npm run dev
 ```
 
-Your application will be available at `http://localhost:5173`.
+3. Open your browser and navigate to `http://localhost:5173`
 
-## Building for Production
+## Mathematical Background
 
-Create a production build:
+The image transformations are based on matrix operations:
 
-```bash
-npm run build
-```
-
-## Deployment
-
-### Docker Deployment
-
-This template includes three Dockerfiles optimized for different package managers:
-
-- `Dockerfile` - for npm
-- `Dockerfile.pnpm` - for pnpm
-- `Dockerfile.bun` - for bun
-
-To build and run using Docker:
-
-```bash
-# For npm
-docker build -t my-app .
-
-# For pnpm
-docker build -f Dockerfile.pnpm -t my-app .
-
-# For bun
-docker build -f Dockerfile.bun -t my-app .
-
-# Run the container
-docker run -p 3000:3000 my-app
-```
-
-The containerized application can be deployed to any platform that supports Docker, including:
-
-- AWS ECS
-- Google Cloud Run
-- Azure Container Apps
-- Digital Ocean App Platform
-- Fly.io
-- Railway
-
-### DIY Deployment
-
-If you're familiar with deploying Node applications, the built-in app server is production-ready.
-
-Make sure to deploy the output of `npm run build`
+### Rotation Matrix
 
 ```
-├── package.json
-├── package-lock.json (or pnpm-lock.yaml, or bun.lockb)
-├── build/
-│   ├── client/    # Static assets
-│   └── server/    # Server-side code
+R(θ) = [
+  cos(θ)  -sin(θ)  0
+  sin(θ)   cos(θ)  0
+  0        0       1
+]
 ```
 
-## Styling
+### Scaling Matrix
 
-This template comes with [Tailwind CSS](https://tailwindcss.com/) already configured for a simple default starting experience. You can use whatever CSS framework you prefer.
+```
+S = [
+  sx  0   0
+  0   sy  0
+  0   0   1
+]
+```
 
----
+### Flipping Matrix
 
-Built with ❤️ using React Router.
+Horizontal flip:
+```
+[
+  -1  0   0
+  0   1   0
+  0   0   1
+]
+```
+
+Vertical flip:
+```
+[
+  1   0   0
+  0   -1  0
+  0   0   1
+]
+```
+
+### Warp/Shear Matrix
+
+```
+W = [
+  1   kx  0
+  ky  1   0
+  0   0   1
+]
+```
+
+## License
+
+MIT
+
+## Acknowledgments
+
+- The mathematical formulations for image transformations are based on standard linear algebra techniques
+- WebAssembly compilation is handled by Emscripten
