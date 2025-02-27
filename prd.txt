@@ -1,0 +1,216 @@
+Project Overview
+This document outlines the specifications for developing a web-based image manipulation application. The application will allow users to upload images, apply various transformations using matrix operations, and download the compressed results.
+Core Technologies:
+
+Backend Logic: C programming language compiled to WebAssembly (WASM)
+Frontend Framework: React.js (React Router 7 framework) npx create-react-router@latest my-react-router-app
+
+Image Rendering: HTML5 Canvas
+Math Operations: Linear algebra matrix transformations
+
+User Experience Flow
+
+Image Upload
+
+User visits the website and is presented with a clean interface
+User can drag and drop or select an image file from their device
+The image is loaded into an HTML5 canvas element
+The original image dimensions and format are displayed
+
+
+Manipulation Interface
+
+The uploaded image appears in a canvas workspace
+A toolbar displays available transformations
+Sidebar shows transformation parameters that can be adjusted
+Real-time preview of changes as parameters are modified
+
+
+Image Transformations
+
+Rotation: User can specify angle in degrees
+Scaling: User can resize by percentage or specific dimensions
+Cropping: User can select a region to keep
+Flipping: Horizontal or vertical mirroring options
+Warping: Advanced controls for perspective shifts
+Filters: Basic color transformations like grayscale
+
+
+Download Options
+
+Quality/compression level selector
+Format options (JPEG, PNG, WebP)
+Download button generates the final image with applied transformations
+Option to reset all transformations
+
+
+
+Technical Architecture
+1. C/WASM Module Design
+The C code will implement the following components:
+
+Image Representation
+
+Matrix structure to store RGB/RGBA pixel data
+Functions to convert between canvas image data and matrix representation
+
+
+Transformation Functions
+
+Identity matrix generation as starting point
+Rotation matrix implementation (using cos/sin functions)
+Scaling matrix implementation
+Flipping matrix implementation
+Warping/shear matrix implementation
+Matrix multiplication function for combining transformations
+
+
+Compression Module
+
+Implementation of SVD (Singular Value Decomposition) for lossy compression
+Functions to extract eigenvectors and eigenvalues
+Compression ratio control parameters
+Reconstruction function to rebuild compressed images
+
+
+
+2. React Frontend Architecture
+
+Component Structure
+
+App: Main container
+ImageUploader: Handles file selection and canvas initialization
+CanvasWorkspace: Displays the active image and handles UI interaction
+TransformationControls: Interface for selecting and configuring transformations
+DownloadOptions: Format and compression settings
+
+
+State Management
+
+Store original image data
+Track applied transformations matrix
+Manage UI control values
+Handle undo/redo functionality
+
+
+
+3. WASM Integration
+
+WASM module initialization and loading
+Memory management between JavaScript and C
+Canvas pixel data transfer to and from WASM
+Performance optimization for real-time previews
+
+Implementation Phases
+Phase 1: Basic Infrastructure
+
+Set up React project with necessary dependencies
+Create C project structure with emscripten compilation setup
+Implement basic image loading into canvas
+Test WASM module loading and simple function calls
+
+Phase 2: Core Transformation Features
+
+Implement matrix operations in C
+Create the transformation functions
+Develop the UI controls for basic transformations
+Enable image data transfer between canvas and WASM
+
+Phase 3: Advanced Features
+
+Implement compression algorithms using eigenvectors
+Add advanced warping and filter capabilities
+Create preview optimization for real-time feedback
+Develop the download module with format options
+
+Phase 4: Optimization and Refinement
+
+Performance profiling and optimization
+Memory usage improvement
+UI/UX refinement
+Cross-browser compatibility testing
+Mobile responsiveness
+
+Technical Specifications
+Image Processing Details
+
+Matrix Representation
+
+Images will be represented as matrices where each element contains RGB(A) values
+For an image of width W and height H:
+
+A 2D matrix of size H×W for grayscale images
+A 3D matrix of size H×W×3 for RGB images
+A 3D matrix of size H×W×4 for RGBA images
+
+
+
+
+Transformation Implementation
+
+Each transformation will be represented as a 3×3 matrix (for 2D homogeneous coordinates)
+Multiple transformations will be combined by matrix multiplication
+For pixel (x,y), the new position (x',y') is calculated as:
+Copy[x']   [a b c]   [x]
+[y'] = [d e f] × [y]
+[1 ]   [0 0 1]   [1]
+
+
+
+Compression Approach
+
+SVD will decompose the image matrix I into U×Σ×V^T
+By keeping only the largest k singular values and corresponding vectors, a compressed approximation is created
+Compression ratio can be adjusted by varying k
+The difference between original and compressed versions determines quality loss
+
+
+
+User Interface Design Guidelines
+
+Layout
+
+Clean, minimalist interface with focus on the canvas
+Toolbar at top for primary actions
+Collapsible sidebar for transformation parameters
+Status bar showing image information and applied transformations
+
+
+Controls
+
+Sliders for continuous parameters (rotation angle, scale factor)
+Preset buttons for common transformations (90° rotation, flip horizontal)
+Numerical input fields with validation
+Undo/redo buttons
+
+
+Visual Feedback
+
+Real-time preview of transformations when possible
+Visual indicators for crop selection
+Loading indicators during processing of large images
+Before/after comparison view
+
+
+
+Deployment Considerations
+
+Browser Compatibility
+
+Target modern browsers with WebAssembly support
+Fallback for browsers without WASM support
+Canvas API compatibility testing
+
+
+Performance
+
+Optimize for images up to 4K resolution
+Consider WebWorkers for non-blocking UI during heavy computations
+Implement progressive rendering for large images
+
+
+Security
+
+All processing happens client-side (no image data sent to servers)
+Input validation for all user-provided values
+Proper memory management in WASM module

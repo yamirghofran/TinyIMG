@@ -1,0 +1,144 @@
+\documentclass{article}
+\usepackage{amsmath}
+
+\title{Image Editor Project Math}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{Rotating an Image (by \(\theta\) degrees)}
+Rotation moves the image around a point (usually the center). The rotation matrix is:
+
+\[
+R(\theta) = \begin{bmatrix}
+\cos(\theta) & -\sin(\theta) \\
+\sin(\theta) & \cos(\theta)
+\end{bmatrix}
+\]
+
+\paragraph{Example:} If \(\theta = 90^\circ\), then \(\cos(90^\circ) = 0\), \(\sin(90^\circ) = 1\), so the matrix is:
+
+\[
+R(90^\circ) = \begin{bmatrix}
+0 & -1 \\
+1 & 0
+\end{bmatrix}
+\]
+
+This swaps and negates coordinates to rotate the image.
+
+\section{Scaling (Resizing the Image)}
+Scaling makes an image larger or smaller. The scaling matrix is:
+
+\[
+S = \begin{bmatrix}
+s_x & 0 \\
+0 & s_y
+\end{bmatrix}
+\]
+
+\begin{itemize}
+    \item \(s_x\) = scaling factor in the x-direction
+    \item \(s_y\) = scaling factor in the y-direction
+\end{itemize}
+
+\paragraph{Example:} If you double the size, use \(s_x = 2, s_y = 2\).
+
+\paragraph{Example:} If you shrink by half, use \(s_x = 0.5, s_y = 0.5\).
+
+\section{Stretching (Uneven Scaling)}
+Stretching is similar to scaling, but differently in each direction.
+
+\begin{itemize}
+    \item Stretch horizontally: \(s_x > 1, s_y = 1\)
+    \item Stretch vertically: \(s_x = 1, s_y > 1\)
+\end{itemize}
+
+\section{Cropping (Not a Matrix Operation)}
+Cropping is just cutting out a part of an image. You select a region and discard the rest—this doesn’t need a matrix.
+
+\section{Flipping (Mirroring)}
+Flipping means reversing the image horizontally or vertically.
+
+\begin{itemize}
+    \item Horizontal Flip (Mirror left-right):
+    \[
+    \begin{bmatrix}
+    -1 & 0 \\
+    0 & 1
+    \end{bmatrix}
+    \]
+    \item Vertical Flip (Mirror top-bottom):
+    \[
+    \begin{bmatrix}
+    1 & 0 \\
+    0 & -1
+    \end{bmatrix}
+    \]
+\end{itemize}
+
+\section{Warp (Advanced Transformation)}
+Warping means distorting the image, like perspective shifts. A simple shear matrix is:
+
+\[
+W = \begin{bmatrix}
+1 & k_x \\
+k_y & 1
+\end{bmatrix}
+\]
+
+\begin{itemize}
+    \item \(k_x\) controls horizontal slant
+    \item \(k_y\) controls vertical slant
+\end{itemize}
+
+\paragraph{Example:} If \(k_x = 1, k_y = 0\), the image leans right.
+
+\section{Basic Color Filters (Advanced)}
+Color changes don’t affect positions, but each pixel’s RGB values are multiplied by a matrix. For grayscale conversion, each pixel’s (R, G, B) values are transformed to a single grayscale value.
+
+\section{Identity Matrix}
+For 2D transformations, it's:
+
+\[
+I = \begin{bmatrix}
+1 & 0 \\
+0 & 1
+\end{bmatrix}
+\]
+
+For colors (3D transformations), it's:
+
+\[
+I_3 = \begin{bmatrix}
+1 & 0 & 0 \\
+0 & 1 & 0 \\
+0 & 0 & 1
+\end{bmatrix}
+\]
+
+\subsection{Why Do We Need It?}
+\begin{enumerate}
+    \item \textbf{Starting Point:} Before applying any transformations (rotation, scaling, flipping, etc.), we start with something neutral. The identity matrix is a good default because it does nothing to the image.
+    \item \textbf{Combining Multiple Transformations:} If we want to apply multiple transformations at once, we multiply matrices together. Starting with the identity matrix makes this process structured. 
+
+    \paragraph{Example:} If you want to scale and then rotate, you multiply:
+    \[
+    \text{Final Matrix} = R \times S \times I
+    \]
+
+    \item \textbf{Preserves Original Data (Prevents Accidental Modifications):} When coding transformations, it's better to start with \(I\) and apply changes step by step. This prevents unexpected distortions or errors.
+\end{enumerate}
+
+\paragraph{Example With Identity Matrix}
+\begin{enumerate}
+    \item Start with \(I\) (original state).
+    \item Multiply by scaling matrix.
+    \item Multiply by rotation matrix.
+    \item The final matrix gives the correct transformation.
+\end{enumerate}
+
+\end{document}
