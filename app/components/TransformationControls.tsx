@@ -9,7 +9,7 @@ import {
 } from '../wasm/wasmLoader';
 
 interface TransformationControlsProps {
-  onTransformationChange: (matrix: number[][]) => void;
+  onTransformationChange: (matrix: number[][], params?: any) => void;
   transformMatrix: number[][];
   wasmModule: any;
 }
@@ -43,7 +43,15 @@ export function TransformationControls({
       [1, 0, 0],
       [0, 1, 0],
       [0, 0, 1]
-    ]);
+    ], {
+      rotationAngle: 0,
+      scaleX: 1,
+      scaleY: 1,
+      flipHorizontal: false,
+      flipVertical: false,
+      shearX: 0,
+      shearY: 0
+    });
   };
   
   // Calculate transformation matrix based on current parameters using WASM
@@ -92,7 +100,16 @@ export function TransformationControls({
       freeTransformMatrix(wasmModule, warpMatrixPtr);
       freeTransformMatrix(wasmModule, resultPtr);
       
-      onTransformationChange(result);
+      // Pass both the matrix and the parameters
+      onTransformationChange(result, {
+        rotationAngle,
+        scaleX,
+        scaleY,
+        flipHorizontal,
+        flipVertical,
+        shearX,
+        shearY
+      });
     } catch (error) {
       console.error('Error calculating transformation matrix with WASM:', error);
       
@@ -154,7 +171,16 @@ export function TransformationControls({
       combinedMatrix = multiplyMatricesJS(combinedMatrix, flipMatrix);
       combinedMatrix = multiplyMatricesJS(combinedMatrix, shearMatrix);
       
-      onTransformationChange(combinedMatrix);
+      // Pass both the matrix and the parameters
+      onTransformationChange(combinedMatrix, {
+        rotationAngle,
+        scaleX,
+        scaleY,
+        flipHorizontal,
+        flipVertical,
+        shearX,
+        shearY
+      });
     }
   }, [rotationAngle, scaleX, scaleY, flipHorizontal, flipVertical, shearX, shearY, wasmModule]);
   

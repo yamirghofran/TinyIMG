@@ -3,6 +3,7 @@ import { ImageUploader } from "../components/ImageUploader";
 import { CanvasWorkspace } from "../components/CanvasWorkspace";
 import { TransformationControls } from "../components/TransformationControls";
 import { DownloadOptions } from "../components/DownloadOptions";
+import { MatrixDisplay } from "../components/MatrixDisplay";
 import { loadWasmModule } from "../wasm/wasmLoader";
 import "../styles/home.css";
 
@@ -21,6 +22,17 @@ export default function Home() {
   const [transformedImageData, setTransformedImageData] = React.useState<ImageData | null>(null);
   const [compressionLevel, setCompressionLevel] = React.useState(100);
   const [outputFormat, setOutputFormat] = React.useState("image/jpeg");
+
+  // Add state for transformation parameters
+  const [transformParams, setTransformParams] = useState({
+    rotationAngle: 0,
+    scaleX: 1,
+    scaleY: 1,
+    flipHorizontal: false,
+    flipVertical: false,
+    shearX: 0,
+    shearY: 0
+  });
 
   // Load WebAssembly module
   useEffect(() => {
@@ -52,8 +64,11 @@ export default function Home() {
     ]);
   }, []);
 
-  const handleTransformationChange = useCallback((newMatrix: number[][]) => {
+  const handleTransformationChange = useCallback((newMatrix: number[][], params?: any) => {
     setTransformMatrix(newMatrix);
+    if (params) {
+      setTransformParams(params);
+    }
   }, []);
 
   const handleTransformedImageUpdate = useCallback((data: ImageData) => {
@@ -114,9 +129,14 @@ export default function Home() {
             <DownloadOptions 
               transformedImageData={transformedImageData}
               compressionLevel={compressionLevel}
-              setCompressionLevel={setCompressionLevel}
               outputFormat={outputFormat}
-              setOutputFormat={setOutputFormat}
+            />
+          )}
+          
+          {imageData && wasmModule && (
+            <MatrixDisplay 
+              transformMatrix={transformMatrix} 
+              transformParams={transformParams}
             />
           )}
         </div>

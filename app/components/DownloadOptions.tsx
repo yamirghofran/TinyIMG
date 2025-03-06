@@ -3,22 +3,17 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 interface DownloadOptionsProps {
   transformedImageData: ImageData;
   compressionLevel: number;
-  setCompressionLevel: (level: number) => void;
   outputFormat: string;
-  setOutputFormat: (format: string) => void;
 }
 
 export function DownloadOptions({
   transformedImageData,
   compressionLevel,
-  setCompressionLevel,
-  outputFormat,
-  setOutputFormat
+  outputFormat
 }: DownloadOptionsProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [downloadUrl, setDownloadUrl] = useState<string>('');
   const [fileSize, setFileSize] = useState<number>(0);
-  const [originalSize, setOriginalSize] = useState<number>(0);
   
   // Generate download URL function
   const generateDownloadUrl = useCallback(() => {
@@ -50,10 +45,6 @@ export function DownloadOptions({
     if (!ctx) return;
     
     ctx.putImageData(transformedImageData, 0, 0);
-    
-    // Calculate original size (uncompressed)
-    const originalSizeBytes = transformedImageData.width * transformedImageData.height * 4; // RGBA = 4 bytes per pixel
-    setOriginalSize(originalSizeBytes);
     
     // Generate download URL with current compression
     generateDownloadUrl();
@@ -96,66 +87,17 @@ export function DownloadOptions({
     }
   };
   
-  // Calculate compression ratio
-  const compressionRatio = originalSize > 0 ? ((originalSize - fileSize) / originalSize * 100).toFixed(1) : '0';
-  
   return (
-    <div className="download-options">
-      <h3>Download Options</h3>
-      
+    <div className="download-options-compact">
       {/* Hidden canvas for generating download */}
       <canvas ref={canvasRef} style={{ display: 'none' }} />
       
-      {/* Format selector */}
-      <div className="format-selector">
-        <label htmlFor="format-select">Output Format:</label>
-        <select 
-          id="format-select"
-          value={outputFormat}
-          onChange={(e) => setOutputFormat(e.target.value)}
-        >
-          <option value="image/jpeg">JPEG</option>
-          <option value="image/png">PNG</option>
-          <option value="image/webp">WebP</option>
-        </select>
-      </div>
-      
-      {/* Compression level slider */}
-      <div className="control-group">
-        <h4>Compression Level</h4>
-        <div className="slider-container">
-          <input 
-            type="range" 
-            min="1" 
-            max="100" 
-            value={compressionLevel} 
-            onChange={(e) => setCompressionLevel(Number(e.target.value))}
-          />
-          <label>
-            <span>Quality:</span>
-            <input 
-              type="number" 
-              value={compressionLevel} 
-              onChange={(e) => setCompressionLevel(Number(e.target.value))}
-              min="1"
-              max="100"
-            />%
-          </label>
-        </div>
-      </div>
-      
-      {/* File size info */}
-      <div className="file-info">
-        <p>Estimated Size: {formatFileSize(fileSize)}</p>
-        <p>Compression: {compressionRatio}%</p>
-      </div>
-      
-      {/* Download button */}
+      {/* Download button with file size */}
       <button 
-        className="download-button"
+        className="download-button-small"
         onClick={handleDownload}
       >
-        Download Image
+        Download ({formatFileSize(fileSize)})
       </button>
     </div>
   );
