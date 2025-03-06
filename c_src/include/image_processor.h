@@ -56,6 +56,9 @@ TransformMatrix* createWarpMatrix(float kx, float ky);
 EMSCRIPTEN_KEEPALIVE
 TransformMatrix* multiplyMatrices(TransformMatrix* m1, TransformMatrix* m2);
 
+EMSCRIPTEN_KEEPALIVE
+void freeTransformMatrix(TransformMatrix* matrix);
+
 // Image transformations
 EMSCRIPTEN_KEEPALIVE
 ImageMatrix* applyTransformation(ImageMatrix* image, TransformMatrix* transform);

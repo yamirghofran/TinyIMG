@@ -138,6 +138,12 @@ TransformMatrix* multiplyMatrices(TransformMatrix* m1, TransformMatrix* m2) {
     return result;
 }
 
+void freeTransformMatrix(TransformMatrix* matrix) {
+    if (matrix) {
+        free(matrix);
+    }
+}
+
 // Image transformation function
 ImageMatrix* applyTransformation(ImageMatrix* image, TransformMatrix* transform) {
     if (!image || !transform) return NULL;

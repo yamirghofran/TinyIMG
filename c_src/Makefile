@@ -4,7 +4,7 @@ CFLAGS = -O3 -s WASM=1 \
          -s ALLOW_MEMORY_GROWTH=1 \
          -s MODULARIZE=1 \
          -s EXPORT_NAME="ImageProcessor" \
-         -s EXPORTED_FUNCTIONS=['_malloc','_free','_canvasDataToMatrix','_matrixToCanvasData','_createIdentityMatrix','_applyTransformation','_freeImageMatrix']
+         -s EXPORTED_FUNCTIONS=['_malloc','_free','_canvasDataToMatrix','_matrixToCanvasData','_createIdentityMatrix','_createRotationMatrix','_createScalingMatrix','_createFlipMatrix','_createWarpMatrix','_multiplyMatrices','_freeTransformMatrix','_applyTransformation','_freeImageMatrix']
 INCLUDES = -I./include
 SRC_DIR = src
 BUILD_DIR = build

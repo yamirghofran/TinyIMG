@@ -45,32 +45,47 @@ export async function loadWasmModule(): Promise<any> {
 
 // Export transformation utility functions
 export const createIdentityMatrix = (module: any) => {
-  return module.ccall('createIdentityMatrix', 'number', [], []);
+  return module._createIdentityMatrix ? module._createIdentityMatrix() :
+         module.ccall('createIdentityMatrix', 'number', [], []);
 };
 
 export const createRotationMatrix = (module: any, angle: number) => {
-  return module.ccall('createRotationMatrix', 'number', ['number'], [angle]);
+  return module._createRotationMatrix ? module._createRotationMatrix(angle) :
+         module.ccall('createRotationMatrix', 'number', ['number'], [angle]);
 };
 
 export const createScalingMatrix = (module: any, sx: number, sy: number) => {
-  return module.ccall('createScalingMatrix', 'number', ['number', 'number'], [sx, sy]);
+  return module._createScalingMatrix ? module._createScalingMatrix(sx, sy) :
+         module.ccall('createScalingMatrix', 'number', ['number', 'number'], [sx, sy]);
 };
 
 export const createFlipMatrix = (module: any, horizontalFlip: boolean, verticalFlip: boolean) => {
-  return module.ccall(
-    'createFlipMatrix', 
-    'number', 
-    ['number', 'number'], 
-    [horizontalFlip ? 1 : 0, verticalFlip ? 1 : 0]
-  );
+  return module._createFlipMatrix ? 
+         module._createFlipMatrix(horizontalFlip ? 1 : 0, verticalFlip ? 1 : 0) :
+         module.ccall(
+           'createFlipMatrix', 
+           'number', 
+           ['number', 'number'], 
+           [horizontalFlip ? 1 : 0, verticalFlip ? 1 : 0]
+         );
 };
 
 export const createWarpMatrix = (module: any, kx: number, ky: number) => {
-  return module.ccall('createWarpMatrix', 'number', ['number', 'number'], [kx, ky]);
+  return module._createWarpMatrix ? module._createWarpMatrix(kx, ky) :
+         module.ccall('createWarpMatrix', 'number', ['number', 'number'], [kx, ky]);
 };
 
 export const multiplyMatrices = (module: any, m1Ptr: number, m2Ptr: number) => {
-  return module.ccall('multiplyMatrices', 'number', ['number', 'number'], [m1Ptr, m2Ptr]);
+  return module._multiplyMatrices ? module._multiplyMatrices(m1Ptr, m2Ptr) :
+         module.ccall('multiplyMatrices', 'number', ['number', 'number'], [m1Ptr, m2Ptr]);
+};
+
+export const freeTransformMatrix = (module: any, matrixPtr: number) => {
+  if (module._freeTransformMatrix) {
+    module._freeTransformMatrix(matrixPtr);
+  } else {
+    module.ccall('freeTransformMatrix', null, ['number'], [matrixPtr]);
+  }
 };
 
 export const applyTransformation = (
@@ -108,28 +123,34 @@ export const applyTransformation = (
   heap.set(imageDataArray, ptr);
   
   // Create an ImageMatrix in WebAssembly
-  const imageMatrixPtr = module.ccall(
-    'canvasDataToMatrix',
-    'number',
-    ['number', 'number', 'number', 'number'],
-    [ptr, imageData.width, imageData.height, 4] // Assuming RGBA
-  );
+  const imageMatrixPtr = module._canvasDataToMatrix ? 
+    module._canvasDataToMatrix(ptr, imageData.width, imageData.height, 4) :
+    module.ccall(
+      'canvasDataToMatrix',
+      'number',
+      ['number', 'number', 'number', 'number'],
+      [ptr, imageData.width, imageData.height, 4] // Assuming RGBA
+    );
   
   // Apply the transformation
-  const resultMatrixPtr = module.ccall(
-    'applyTransformation',
-    'number',
-    ['number', 'number'],
-    [imageMatrixPtr, transformMatrixPtr]
-  );
+  const resultMatrixPtr = module._applyTransformation ?
+    module._applyTransformation(imageMatrixPtr, transformMatrixPtr) :
+    module.ccall(
+      'applyTransformation',
+      'number',
+      ['number', 'number'],
+      [imageMatrixPtr, transformMatrixPtr]
+    );
   
   // Convert the result back to canvas image data
-  const resultDataPtr = module.ccall(
-    'matrixToCanvasData',
-    'number',
-    ['number'],
-    [resultMatrixPtr]
-  );
+  const resultDataPtr = module._matrixToCanvasData ?
+    module._matrixToCanvasData(resultMatrixPtr) :
+    module.ccall(
+      'matrixToCanvasData',
+      'number',
+      ['number'],
+      [resultMatrixPtr]
+    );
   
   // Create a new ImageData from the result
   const resultArray = new Uint8ClampedArray(
@@ -145,8 +166,13 @@ export const applyTransformation = (
   );
   
   // Free WebAssembly memory
-  module.ccall('freeImageMatrix', null, ['number'], [imageMatrixPtr]);
-  module.ccall('freeImageMatrix', null, ['number'], [resultMatrixPtr]);
+  if (module._freeImageMatrix) {
+    module._freeImageMatrix(imageMatrixPtr);
+    module._freeImageMatrix(resultMatrixPtr);
+  } else {
+    module.ccall('freeImageMatrix', null, ['number'], [imageMatrixPtr]);
+    module.ccall('freeImageMatrix', null, ['number'], [resultMatrixPtr]);
+  }
   
   // Free the allocated memory
   if (module._free) {

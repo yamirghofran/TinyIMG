@@ -1,13 +1,23 @@
 import React, { useState, useEffect } from 'react';
+import { 
+  createRotationMatrix, 
+  createScalingMatrix, 
+  createFlipMatrix, 
+  createWarpMatrix, 
+  multiplyMatrices,
+  freeTransformMatrix
+} from '../wasm/wasmLoader';
 
 interface TransformationControlsProps {
   onTransformationChange: (matrix: number[][]) => void;
   transformMatrix: number[][];
+  wasmModule: any;
 }
 
 export function TransformationControls({ 
   onTransformationChange,
-  transformMatrix
+  transformMatrix,
+  wasmModule
 }: TransformationControlsProps) {
   // Transformation parameters
   const [rotationAngle, setRotationAngle] = useState(0);
@@ -36,44 +46,32 @@ export function TransformationControls({
     ]);
   };
   
-  // Calculate transformation matrix based on current parameters
+  // Calculate transformation matrix based on current parameters using WASM
   useEffect(() => {
-    // Convert angle to radians
-    const radians = rotationAngle * (Math.PI / 180);
-    const cosTheta = Math.cos(radians);
-    const sinTheta = Math.sin(radians);
+    if (!wasmModule) return;
     
-    // Create rotation matrix
-    const rotationMatrix = [
-      [cosTheta, -sinTheta, 0],
-      [sinTheta, cosTheta, 0],
-      [0, 0, 1]
-    ];
-    
-    // Create scaling matrix
-    const scalingMatrix = [
-      [scaleX, 0, 0],
-      [0, scaleY, 0],
-      [0, 0, 1]
-    ];
-    
-    // Create flip matrix
-    const flipMatrix = [
-      [flipHorizontal ? -1 : 1, 0, 0],
-      [0, flipVertical ? -1 : 1, 0],
-      [0, 0, 1]
-    ];
-    
-    // Create shear matrix
-    const shearMatrix = [
-      [1, shearX, 0],
-      [shearY, 1, 0],
-      [0, 0, 1]
-    ];
-    
-    // Combine matrices (order matters: shear -> flip -> scale -> rotate)
-    // Matrix multiplication function
-    const multiplyMatrices = (a: number[][], b: number[][]) => {
+    try {
+      // Create individual transformation matrices using WASM
+      const rotationMatrixPtr = createRotationMatrix(wasmModule, rotationAngle);
+      const scalingMatrixPtr = createScalingMatrix(wasmModule, scaleX, scaleY);
+      const flipMatrixPtr = createFlipMatrix(wasmModule, flipHorizontal, flipVertical);
+      const warpMatrixPtr = createWarpMatrix(wasmModule, shearX, shearY);
+      
+      // Combine matrices (order matters: shear -> flip -> scale -> rotate)
+      // First multiply rotation and scaling
+      let resultPtr = multiplyMatrices(wasmModule, rotationMatrixPtr, scalingMatrixPtr);
+      
+      // Then multiply with flip matrix
+      let tempPtr = resultPtr;
+      resultPtr = multiplyMatrices(wasmModule, resultPtr, flipMatrixPtr);
+      freeTransformMatrix(wasmModule, tempPtr);
+      
+      // Finally multiply with warp matrix
+      tempPtr = resultPtr;
+      resultPtr = multiplyMatrices(wasmModule, resultPtr, warpMatrixPtr);
+      freeTransformMatrix(wasmModule, tempPtr);
+      
+      // Extract the matrix values from WebAssembly memory
       const result = [
         [0, 0, 0],
         [0, 0, 0],
@@ -82,22 +80,83 @@ export function TransformationControls({
       
       for (let i = 0; i < 3; i++) {
         for (let j = 0; j < 3; j++) {
-          for (let k = 0; k < 3; k++) {
-            result[i][j] += a[i][k] * b[k][j];
-          }
+          const offset = resultPtr + (i * 3 + j) * 4; // 4 bytes per float
+          result[i][j] = wasmModule.HEAPF32[offset / 4];
         }
       }
       
-      return result;
-    };
-    
-    // Combine all transformations
-    let combinedMatrix = multiplyMatrices(rotationMatrix, scalingMatrix);
-    combinedMatrix = multiplyMatrices(combinedMatrix, flipMatrix);
-    combinedMatrix = multiplyMatrices(combinedMatrix, shearMatrix);
-    
-    onTransformationChange(combinedMatrix);
-  }, [rotationAngle, scaleX, scaleY, flipHorizontal, flipVertical, shearX, shearY]);
+      // Free all matrices
+      freeTransformMatrix(wasmModule, rotationMatrixPtr);
+      freeTransformMatrix(wasmModule, scalingMatrixPtr);
+      freeTransformMatrix(wasmModule, flipMatrixPtr);
+      freeTransformMatrix(wasmModule, warpMatrixPtr);
+      freeTransformMatrix(wasmModule, resultPtr);
+      
+      onTransformationChange(result);
+    } catch (error) {
+      console.error('Error calculating transformation matrix with WASM:', error);
+      
+      // Fallback to JavaScript implementation if WASM fails
+      // Convert angle to radians
+      const radians = rotationAngle * (Math.PI / 180);
+      const cosTheta = Math.cos(radians);
+      const sinTheta = Math.sin(radians);
+      
+      // Create rotation matrix
+      const rotationMatrix = [
+        [cosTheta, -sinTheta, 0],
+        [sinTheta, cosTheta, 0],
+        [0, 0, 1]
+      ];
+      
+      // Create scaling matrix
+      const scalingMatrix = [
+        [scaleX, 0, 0],
+        [0, scaleY, 0],
+        [0, 0, 1]
+      ];
+      
+      // Create flip matrix
+      const flipMatrix = [
+        [flipHorizontal ? -1 : 1, 0, 0],
+        [0, flipVertical ? -1 : 1, 0],
+        [0, 0, 1]
+      ];
+      
+      // Create shear matrix
+      const shearMatrix = [
+        [1, shearX, 0],
+        [shearY, 1, 0],
+        [0, 0, 1]
+      ];
+      
+      // Matrix multiplication function
+      const multiplyMatricesJS = (a: number[][], b: number[][]) => {
+        const result = [
+          [0, 0, 0],
+          [0, 0, 0],
+          [0, 0, 0]
+        ];
+        
+        for (let i = 0; i < 3; i++) {
+          for (let j = 0; j < 3; j++) {
+            for (let k = 0; k < 3; k++) {
+              result[i][j] += a[i][k] * b[k][j];
+            }
+          }
+        }
+        
+        return result;
+      };
+      
+      // Combine all transformations
+      let combinedMatrix = multiplyMatricesJS(rotationMatrix, scalingMatrix);
+      combinedMatrix = multiplyMatricesJS(combinedMatrix, flipMatrix);
+      combinedMatrix = multiplyMatricesJS(combinedMatrix, shearMatrix);
+      
+      onTransformationChange(combinedMatrix);
+    }
+  }, [rotationAngle, scaleX, scaleY, flipHorizontal, flipVertical, shearX, shearY, wasmModule]);
   
   // Preset transformations
   const applyPreset = (preset: string) => {
