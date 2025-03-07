@@ -93,7 +93,7 @@
 }
 
 .reset-button {
-  background-color: #e74c3c;
+  background-color: #94a3b8;
   color: white;
   border: none;
   padding: 0.5rem 1rem;
@@ -104,7 +104,7 @@
 }
 
 .reset-button:hover {
-  background-color: #c0392b;
+  background-color: #475569;
 }
 
 /* Canvas workspace */
