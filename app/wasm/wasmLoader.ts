@@ -187,4 +187,155 @@ export const applyTransformation = (
   }
   
   return transformedImageData;
+};
+
+export const compressSVD = (
+  module: any,
+  imageData: ImageData,
+  compressionRatio: number
+) => {
+  console.log('compressSVD called with ratio:', compressionRatio);
+  
+  // Convert canvas image data to WebAssembly format
+  const imageDataArray = new Uint8ClampedArray(imageData.data);
+  
+  // Allocate memory in the WebAssembly heap
+  const numBytes = imageDataArray.length;
+  console.log('Allocating memory for image data:', numBytes, 'bytes');
+  
+  const ptr = module._malloc ? module._malloc(numBytes) : 
+             (module.asm ? module.asm.malloc(numBytes) : 
+             module.ccall('malloc', 'number', ['number'], [numBytes]));
+  
+  if (!ptr) {
+    console.error('Failed to allocate memory for image data');
+    return null;
+  }
+  console.log('Memory allocated at address:', ptr);
+  
+  // Copy the image data to WebAssembly memory
+  const heap = module.HEAPU8;
+  heap.set(imageDataArray, ptr);
+  
+  // Create an ImageMatrix in WebAssembly
+  console.log('Creating ImageMatrix with dimensions:', imageData.width, 'x', imageData.height);
+  const imageMatrixPtr = module._canvasDataToMatrix ? 
+    module._canvasDataToMatrix(ptr, imageData.width, imageData.height, 4) :
+    module.ccall(
+      'canvasDataToMatrix',
+      'number',
+      ['number', 'number', 'number', 'number'],
+      [ptr, imageData.width, imageData.height, 4] // Assuming RGBA
+    );
+  
+  if (!imageMatrixPtr) {
+    console.error('Failed to create ImageMatrix');
+    module._free(ptr);
+    return null;
+  }
+  console.log('ImageMatrix created at address:', imageMatrixPtr);
+  
+  // Apply SVD compression
+  console.log('Calling _compressSVD with ratio:', compressionRatio);
+  const compressedMatrixPtr = module._compressSVD ?
+    module._compressSVD(imageMatrixPtr, compressionRatio) :
+    module.ccall(
+      'compressSVD',
+      'number',
+      ['number', 'number'],
+      [imageMatrixPtr, compressionRatio]
+    );
+  
+  if (!compressedMatrixPtr) {
+    console.error('Failed to compress image with SVD');
+    module._freeImageMatrix(imageMatrixPtr);
+    module._free(ptr);
+    return null;
+  }
+  console.log('Compressed ImageMatrix created at address:', compressedMatrixPtr);
+  
+  // Convert the result back to canvas image data
+  console.log('Converting compressed matrix to canvas data');
+  const resultDataPtr = module._matrixToCanvasData ?
+    module._matrixToCanvasData(compressedMatrixPtr) :
+    module.ccall(
+      'matrixToCanvasData',
+      'number',
+      ['number'],
+      [compressedMatrixPtr]
+    );
+  
+  if (!resultDataPtr) {
+    console.error('Failed to convert compressed matrix to canvas data');
+    module._freeImageMatrix(imageMatrixPtr);
+    module._freeImageMatrix(compressedMatrixPtr);
+    module._free(ptr);
+    return null;
+  }
+  console.log('Canvas data created at address:', resultDataPtr);
+  
+  // Create a new ImageData from the result
+  try {
+    const resultArray = new Uint8ClampedArray(
+      module.HEAPU8.buffer,
+      resultDataPtr,
+      imageData.width * imageData.height * 4
+    );
+    
+    const compressedImageData = new ImageData(
+      resultArray,
+      imageData.width,
+      imageData.height
+    );
+    
+    console.log('Successfully created compressed ImageData');
+    
+    // Free WebAssembly memory
+    if (module._freeImageMatrix) {
+      module._freeImageMatrix(imageMatrixPtr);
+      module._freeImageMatrix(compressedMatrixPtr);
+    } else {
+      module.ccall('freeImageMatrix', null, ['number'], [imageMatrixPtr]);
+      module.ccall('freeImageMatrix', null, ['number'], [compressedMatrixPtr]);
+    }
+    
+    // Free the allocated memory
+    if (module._free) {
+      module._free(ptr);
+      module._free(resultDataPtr);
+    } else if (module.asm && module.asm.free) {
+      module.asm.free(ptr);
+      module.asm.free(resultDataPtr);
+    } else {
+      module.ccall('free', null, ['number'], [ptr]);
+      module.ccall('free', null, ['number'], [resultDataPtr]);
+    }
+    
+    return compressedImageData;
+  } catch (error) {
+    console.error('Error creating compressed ImageData:', error);
+    
+    // Free WebAssembly memory
+    if (module._freeImageMatrix) {
+      module._freeImageMatrix(imageMatrixPtr);
+      module._freeImageMatrix(compressedMatrixPtr);
+    } else {
+      module.ccall('freeImageMatrix', null, ['number'], [imageMatrixPtr]);
+      module.ccall('freeImageMatrix', null, ['number'], [compressedMatrixPtr]);
+    }
+    
+    // Free the allocated memory
+    if (module._free) {
+      module._free(ptr);
+      module._free(resultDataPtr);
+    } else if (module.asm && module.asm.free) {
+      module.asm.free(ptr);
+      module.asm.free(resultDataPtr);
+    } else {
+      module.ccall('free', null, ['number'], [ptr]);
+      module.ccall('free', null, ['number'], [resultDataPtr]);
+    }
+    
+    return null;
+  }
 }; 

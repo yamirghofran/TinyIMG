@@ -214,21 +214,420 @@ ImageMatrix* applyTransformation(ImageMatrix* image, TransformMatrix* transform)
     return result;
 }
 
-// Simple SVD-based compression (placeholder - a full SVD implementation would be more complex)
-ImageMatrix* compressSVD(ImageMatrix* image, float compressionRatio) {
-    // This is a simplified placeholder for SVD compression
-    // A real implementation would decompose the image matrix and reconstruct with fewer singular values
+// Helper functions for SVD implementation
+// Allocate a 2D matrix of floats
+float** allocateMatrix(int rows, int cols) {
+    float** matrix = (float**)malloc(rows * sizeof(float*));
+    if (!matrix) return NULL;
     
-    // For now, we'll just return a copy of the image
+    for (int i = 0; i < rows; i++) {
+        matrix[i] = (float*)malloc(cols * sizeof(float));
+        if (!matrix[i]) {
+            // Free previously allocated memory
+            for (int j = 0; j < i; j++) {
+                free(matrix[j]);
+            }
+            free(matrix);
+            return NULL;
+        }
+        // Initialize to zero
+        for (int j = 0; j < cols; j++) {
+            matrix[i][j] = 0.0f;
+        }
+    }
+    return matrix;
+}
+
+// Free a 2D matrix
+void freeMatrix(float** matrix, int rows) {
+    if (!matrix) return;
+    
+    for (int i = 0; i < rows; i++) {
+        if (matrix[i]) free(matrix[i]);
+    }
+    free(matrix);
+}
+
+// Create a copy of a matrix
+float** copyMatrix(float** src, int rows, int cols) {
+    float** dest = allocateMatrix(rows, cols);
+    if (!dest) return NULL;
+    
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            dest[i][j] = src[i][j];
+        }
+    }
+    return dest;
+}
+
+// Transpose a matrix
+float** transposeMatrix(float** matrix, int rows, int cols) {
+    float** transpose = allocateMatrix(cols, rows);
+    if (!transpose) return NULL;
+    
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            transpose[j][i] = matrix[i][j];
+        }
+    }
+    return transpose;
+}
+
+// Multiply two matrices: C = A * B
+float** multiplyMatrices2D(float** A, int rowsA, int colsA, float** B, int rowsB, int colsB) {
+    if (colsA != rowsB) return NULL;
+    
+    float** C = allocateMatrix(rowsA, colsB);
+    if (!C) return NULL;
+    
+    for (int i = 0; i < rowsA; i++) {
+        for (int j = 0; j < colsB; j++) {
+            C[i][j] = 0.0f;
+            for (int k = 0; k < colsA; k++) {
+                C[i][j] += A[i][k] * B[k][j];
+            }
+        }
+    }
+    return C;
+}
+
+// Multiply matrix by scalar: B = A * s
+void multiplyMatrixByScalar(float** A, int rows, int cols, float s, float** B) {
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            B[i][j] = A[i][j] * s;
+        }
+    }
+}
+
+// Calculate the Frobenius norm of a matrix
+float frobeniusNorm(float** A, int rows, int cols) {
+    float sum = 0.0f;
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            sum += A[i][j] * A[i][j];
+        }
+    }
+    return sqrtf(sum);
+}
+
+// Calculate A^T * A for a matrix A
+float** calculateATA(float** A, int rows, int cols) {
+    float** AT = transposeMatrix(A, rows, cols);
+    if (!AT) return NULL;
+    
+    float** ATA = multiplyMatrices2D(AT, cols, rows, A, rows, cols);
+    
+    freeMatrix(AT, cols);
+    return ATA;
+}
+
+// Calculate A * A^T for a matrix A
+float** calculateAAT(float** A, int rows, int cols) {
+    float** AT = transposeMatrix(A, rows, cols);
+    if (!AT) return NULL;
+    
+    float** AAT = multiplyMatrices2D(A, rows, cols, AT, cols, rows);
+    
+    freeMatrix(AT, cols);
+    return AAT;
+}
+
+// Initialize identity matrix
+void initIdentityMatrix(float** matrix, int size) {
+    for (int i = 0; i < size; i++) {
+        for (int j = 0; j < size; j++) {
+            matrix[i][j] = (i == j) ? 1.0f : 0.0f;
+        }
+    }
+}
+
+// Find the largest off-diagonal element in a symmetric matrix
+void findLargestOffDiagonal(float** A, int n, int* p, int* q) {
+    float maxVal = 0.0f;
+    *p = 0;
+    *q = 1;
+    
+    for (int i = 0; i < n; i++) {
+        for (int j = i + 1; j < n; j++) {
+            if (fabs(A[i][j]) > maxVal) {
+                maxVal = fabs(A[i][j]);
+                *p = i;
+                *q = j;
+            }
+        }
+    }
+}
+
+// Perform a Jacobi rotation on a symmetric matrix
+void jacobiRotation(float** A, float** V, int n, int p, int q) {
+    // Calculate rotation parameters
+    float a_pp = A[p][p];
+    float a_qq = A[q][q];
+    float a_pq = A[p][q];
+    
+    float theta = 0.5f * atan2(2.0f * a_pq, a_qq - a_pp);
+    float c = cosf(theta);
+    float s = sinf(theta);
+    
+    // Update the matrix A
+    float new_app = a_pp * c * c + a_qq * s * s + 2.0f * a_pq * c * s;
+    float new_aqq = a_pp * s * s + a_qq * c * c - 2.0f * a_pq * c * s;
+    
+    A[p][p] = new_app;
+    A[q][q] = new_aqq;
+    A[p][q] = 0.0f;
+    A[q][p] = 0.0f;
+    
+    for (int i = 0; i < n; i++) {
+        if (i != p && i != q) {
+            float a_ip = A[i][p];
+            float a_iq = A[i][q];
+            A[i][p] = a_ip * c + a_iq * s;
+            A[p][i] = A[i][p];
+            A[i][q] = -a_ip * s + a_iq * c;
+            A[q][i] = A[i][q];
+        }
+    }
+    
+    // Update the eigenvector matrix V
+    for (int i = 0; i < n; i++) {
+        float v_ip = V[i][p];
+        float v_iq = V[i][q];
+        V[i][p] = v_ip * c + v_iq * s;
+        V[i][q] = -v_ip * s + v_iq * c;
+    }
+}
+
+// Perform Jacobi SVD on a matrix
+void jacobiSVD(float** A, int rows, int cols, float** U, float* S, float** V) {
+    // Determine which dimension is smaller
+    int m = rows;
+    int n = cols;
+    int min_dim = (m < n) ? m : n;
+    
+    // For SVD, we need to compute eigenvalues of A^T*A or A*A^T
+    float** ATA = NULL;
+    float** eigenvectors = NULL;
+    
+    if (n <= m) {
+        // Use A^T*A which is n x n
+        ATA = calculateATA(A, m, n);
+        eigenvectors = allocateMatrix(n, n);
+        initIdentityMatrix(eigenvectors, n);
+    } else {
+        // Use A*A^T which is m x m
+        ATA = calculateAAT(A, m, n);
+        eigenvectors = allocateMatrix(m, m);
+        initIdentityMatrix(eigenvectors, m);
+    }
+    
+    if (!ATA || !eigenvectors) {
+        if (ATA) freeMatrix(ATA, (n <= m) ? n : m);
+        if (eigenvectors) freeMatrix(eigenvectors, (n <= m) ? n : m);
+        return;
+    }
+    
+    // Perform Jacobi iterations
+    const int MAX_ITERATIONS = 100;
+    const float EPSILON = 1e-10f;
+    
+    for (int iter = 0; iter < MAX_ITERATIONS; iter++) {
+        // Find the largest off-diagonal element
+        int p, q;
+        findLargestOffDiagonal(ATA, (n <= m) ? n : m, &p, &q);
+        
+        // If the element is very small, we're done
+        if (fabs(ATA[p][q]) < EPSILON) {
+            break;
+        }
+        
+        // Perform Jacobi rotation
+        jacobiRotation(ATA, eigenvectors, (n <= m) ? n : m, p, q);
+    }
+    
+    // Extract singular values (square root of eigenvalues)
+    for (int i = 0; i < min_dim; i++) {
+        S[i] = sqrtf(fabs(ATA[i][i]));
+    }
+    
+    // Sort singular values and corresponding vectors in descending order
+    for (int i = 0; i < min_dim - 1; i++) {
+        for (int j = i + 1; j < min_dim; j++) {
+            if (S[i] < S[j]) {
+                // Swap singular values
+                float temp = S[i];
+                S[i] = S[j];
+                S[j] = temp;
+                
+                // Swap columns in eigenvectors
+                for (int k = 0; k < ((n <= m) ? n : m); k++) {
+                    temp = eigenvectors[k][i];
+                    eigenvectors[k][i] = eigenvectors[k][j];
+                    eigenvectors[k][j] = temp;
+                }
+            }
+        }
+    }
+    
+    // Set up V matrix
+    if (n <= m) {
+        // V is just the eigenvectors
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < min_dim; j++) {
+                V[i][j] = eigenvectors[i][j];
+            }
+        }
+    } else {
+        // V needs to be computed from A^T*U*S^-1
+        float** AT = transposeMatrix(A, m, n);
+        float** US_inv = allocateMatrix(m, min_dim);
+        
+        // Compute U*S^-1
+        for (int i = 0; i < m; i++) {
+            for (int j = 0; j < min_dim; j++) {
+                if (S[j] > EPSILON) {
+                    US_inv[i][j] = eigenvectors[i][j] / S[j];
+                } else {
+                    US_inv[i][j] = 0.0f;
+                }
+            }
+        }
+        
+        // V = A^T * U * S^-1
+        float** temp = multiplyMatrices2D(AT, n, m, US_inv, m, min_dim);
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < min_dim; j++) {
+                V[i][j] = temp[i][j];
+            }
+        }
+        
+        freeMatrix(AT, n);
+        freeMatrix(US_inv, m);
+        freeMatrix(temp, n);
+    }
+    
+    // Set up U matrix
+    if (n <= m) {
+        // U needs to be computed from A*V*S^-1
+        float** VS_inv = allocateMatrix(n, min_dim);
+        
+        // Compute V*S^-1
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < min_dim; j++) {
+                if (S[j] > EPSILON) {
+                    VS_inv[i][j] = V[i][j] / S[j];
+                } else {
+                    VS_inv[i][j] = 0.0f;
+                }
+            }
+        }
+        
+        // U = A * V * S^-1
+        float** temp = multiplyMatrices2D(A, m, n, VS_inv, n, min_dim);
+        for (int i = 0; i < m; i++) {
+            for (int j = 0; j < min_dim; j++) {
+                U[i][j] = temp[i][j];
+            }
+        }
+        
+        freeMatrix(VS_inv, n);
+        freeMatrix(temp, m);
+    } else {
+        // U is just the eigenvectors
+        for (int i = 0; i < m; i++) {
+            for (int j = 0; j < min_dim; j++) {
+                U[i][j] = eigenvectors[i][j];
+            }
+        }
+    }
+    
+    // Clean up
+    freeMatrix(ATA, (n <= m) ? n : m);
+    freeMatrix(eigenvectors, (n <= m) ? n : m);
+}
+
+// SVD-based image compression
+ImageMatrix* compressSVD(ImageMatrix* image, float compressionRatio) {
     if (!image) return NULL;
     
-    ImageMatrix* result = createImageMatrix(image->width, image->height, image->channels);
-    if (!result) return NULL;
+    int width = image->width;
+    int height = image->height;
+    int channels = image->channels;
     
-    size_t dataSize = image->width * image->height * image->channels;
-    memcpy(result->data, image->data, dataSize);
+    // Calculate the number of singular values to keep
+    int maxRank = (width < height) ? width : height;
+    int k = (int)(maxRank * compressionRatio);
+    if (k < 1) k = 1;
+    if (k > maxRank) k = maxRank;
     
-    // TODO: Implement actual SVD compression
+    printf("Compressing image with %d/%d singular values (%.2f%%)\n", 
+           k, maxRank, (float)k / maxRank * 100.0f);
     
-    return result;
+    // Create a new image matrix for the compressed image
+    ImageMatrix* compressedImage = createImageMatrix(width, height, channels);
+    if (!compressedImage) return NULL;
+    
+    // Process each channel separately
+    for (int c = 0; c < channels; c++) {
+        // Convert the channel to a float matrix
+        float** A = allocateMatrix(height, width);
+        if (!A) {
+            freeImageMatrix(compressedImage);
+            return NULL;
+        }
+        
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                A[y][x] = (float)image->data[(y * width + x) * channels + c];
+            }
+        }
+        
+        // Allocate memory for SVD components
+        float** U = allocateMatrix(height, maxRank);
+        float* S = (float*)malloc(maxRank * sizeof(float));
+        float** V = allocateMatrix(width, maxRank);
+        
+        if (!U || !S || !V) {
+            if (A) freeMatrix(A, height);
+            if (U) freeMatrix(U, height);
+            if (S) free(S);
+            if (V) freeMatrix(V, width);
+            freeImageMatrix(compressedImage);
+            return NULL;
+        }
+        
+        // Initialize S to zeros
+        for (int i = 0; i < maxRank; i++) {
+            S[i] = 0.0f;
+        }
+        
+        // Perform SVD
+        jacobiSVD(A, height, width, U, S, V);
+        
+        // Reconstruct the image using only k singular values
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                float value = 0.0f;
+                for (int i = 0; i < k; i++) {
+                    value += S[i] * U[y][i] * V[x][i];
+                }
+                
+                // Clip the value to [0, 255]
+                if (value < 0.0f) value = 0.0f;
+                if (value > 255.0f) value = 255.0f;
+                
+                compressedImage->data[(y * width + x) * channels + c] = (unsigned char)value;
+            }
+        }
+        
+        // Free memory
+        freeMatrix(A, height);
+        freeMatrix(U, height);
+        free(S);
+        freeMatrix(V, width);
+    }
+    
+    return compressedImage;
 } 

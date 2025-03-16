@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState, useRef } from "react";
 import { ImageUploader } from "../components/ImageUploader";
 import { CanvasWorkspace } from "../components/CanvasWorkspace";
 import { TransformationControls } from "../components/TransformationControls";
 import { DownloadOptions } from "../components/DownloadOptions";
 import { MatrixDisplay } from "../components/MatrixDisplay";
+import SVDCompressionControls from "../components/SVDCompressionControls";
 import { loadWasmModule } from "../wasm/wasmLoader";
 import "../styles/home.css";
 
@@ -62,6 +63,8 @@ export default function Home() {
       [0, 1, 0],
       [0, 0, 1]
     ]);
+    // Reset transformed image data
+    setTransformedImageData(null);
   }, []);
 
   const handleTransformationChange = useCallback((newMatrix: number[][], params?: any) => {
@@ -105,6 +108,14 @@ export default function Home() {
               onTransformationChange={handleTransformationChange}
               transformMatrix={transformMatrix}
               wasmModule={wasmModule}
+            />
+          )}
+          
+          {imageData && wasmModule && (
+            <SVDCompressionControls
+              imageData={transformedImageData || imageData}
+              wasmModule={wasmModule}
+              onCompressedImageChange={handleTransformedImageUpdate}
             />
           )}
         </div>

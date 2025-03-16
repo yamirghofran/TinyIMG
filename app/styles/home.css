@@ -382,6 +382,73 @@ input[type="number"] {
   color: #95a5a6;
 }
 
+/* SVD Compression Controls */
+.svd-compression-controls {
+  margin-top: 20px;
+  padding: 15px;
+  background-color: #f5f5f5;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.svd-compression-controls h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  font-size: 16px;
+  color: #333;
+}
+
+.compression-slider {
+  margin-bottom: 15px;
+}
+
+.compression-slider label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.compression-slider input[type="range"] {
+  width: 100%;
+  margin-bottom: 5px;
+}
+
+.compression-description {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #666;
+}
+
+.apply-compression-button {
+  width: 100%;
+  padding: 8px 12px;
+  background-color: #4a90e2;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+.apply-compression-button:hover {
+  background-color: #3a80d2;
+}
+
+.apply-compression-button:disabled {
+  background-color: #a0a0a0;
+  cursor: not-allowed;
+}
+
+.compression-info {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #666;
+  line-height: 1.4;
+  text-align: justify;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
   .app-content {
