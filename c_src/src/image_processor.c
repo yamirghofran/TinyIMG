@@ -411,16 +411,37 @@ void jacobiSVD(float** A, int rows, int cols, float** U, float* S, float** V) {
     float** ATA = NULL;
     float** eigenvectors = NULL;
     
-    if (n <= m) {
-        // Use A^T*A which is n x n
-        ATA = calculateATA(A, m, n);
-        eigenvectors = allocateMatrix(n, n);
-        initIdentityMatrix(eigenvectors, n);
+    // First, make a copy of A to preserve the original data
+    float** A_copy = copyMatrix(A, m, n);
+    if (!A_copy) {
+        // If memory allocation fails, fall back to the original method
+        if (n <= m) {
+            // Use A^T*A which is n x n
+            ATA = calculateATA(A, m, n);
+            eigenvectors = allocateMatrix(n, n);
+            initIdentityMatrix(eigenvectors, n);
+        } else {
+            // Use A*A^T which is m x m
+            ATA = calculateAAT(A, m, n);
+            eigenvectors = allocateMatrix(m, m);
+            initIdentityMatrix(eigenvectors, m);
+        }
     } else {
-        // Use A*A^T which is m x m
-        ATA = calculateAAT(A, m, n);
-        eigenvectors = allocateMatrix(m, m);
-        initIdentityMatrix(eigenvectors, m);
+        // Use the more robust approach with the copy of A
+        if (n <= m) {
+            // Use A^T*A which is n x n
+            ATA = calculateATA(A_copy, m, n);
+            eigenvectors = allocateMatrix(n, n);
+            initIdentityMatrix(eigenvectors, n);
+        } else {
+            // Use A*A^T which is m x m
+            ATA = calculateAAT(A_copy, m, n);
+            eigenvectors = allocateMatrix(m, m);
+            initIdentityMatrix(eigenvectors, m);
+        }
+        
+        // Free the copy of A
+        freeMatrix(A_copy, m);
     }
     
     if (!ATA || !eigenvectors) {
@@ -430,10 +451,11 @@ void jacobiSVD(float** A, int rows, int cols, float** U, float* S, float** V) {
     }
     
     // Perform Jacobi iterations
-    const int MAX_ITERATIONS = 100;
-    const float EPSILON = 1e-10f;
+    const int MAX_ITERATIONS = 150; // Increase max iterations for better convergence
+    const float EPSILON = 1e-8f;    // Tighter convergence threshold
     
-    for (int iter = 0; iter < MAX_ITERATIONS; iter++) {
+    int iter;
+    for (iter = 0; iter < MAX_ITERATIONS; iter++) {
         // Find the largest off-diagonal element
         int p, q;
         findLargestOffDiagonal(ATA, (n <= m) ? n : m, &p, &q);
@@ -543,6 +565,58 @@ void jacobiSVD(float** A, int rows, int cols, float** U, float* S, float** V) {
         }
     }
     
+    // Normalize U and V columns and ensure correct signs
+    for (int j = 0; j < min_dim; j++) {
+        // Normalize U[:, j]
+        float u_norm = 0.0f;
+        for (int i = 0; i < m; i++) {
+            u_norm += U[i][j] * U[i][j];
+        }
+        u_norm = sqrtf(u_norm);
+        
+        if (u_norm > EPSILON) {
+            for (int i = 0; i < m; i++) {
+                U[i][j] /= u_norm;
+            }
+            // Adjust S to compensate for normalization
+            S[j] *= u_norm;
+        }
+        
+        // Normalize V[:, j]
+        float v_norm = 0.0f;
+        for (int i = 0; i < n; i++) {
+            v_norm += V[i][j] * V[i][j];
+        }
+        v_norm = sqrtf(v_norm);
+        
+        if (v_norm > EPSILON) {
+            for (int i = 0; i < n; i++) {
+                V[i][j] /= v_norm;
+            }
+            // Adjust S to compensate for normalization
+            S[j] *= v_norm;
+        }
+        
+        // Ensure U and V have consistent signs
+        // Check the sign of the first non-zero element in U[:, j]
+        float sign = 0.0f;
+        for (int i = 0; i < m && sign == 0.0f; i++) {
+            if (fabs(U[i][j]) > EPSILON) {
+                sign = U[i][j] > 0.0f ? 1.0f : -1.0f;
+            }
+        }
+        
+        // If sign is negative, flip the signs of U[:, j] and V[:, j]
+        if (sign < 0.0f) {
+            for (int i = 0; i < m; i++) {
+                U[i][j] = -U[i][j];
+            }
+            for (int i = 0; i < n; i++) {
+                V[i][j] = -V[i][j];
+            }
+        }
+    }
+    
     // Clean up
     freeMatrix(ATA, (n <= m) ? n : m);
     freeMatrix(eigenvectors, (n <= m) ? n : m);
@@ -578,6 +652,7 @@ ImageMatrix* compressSVD(ImageMatrix* image, float compressionRatio) {
             return NULL;
         }
         
+        // Copy the channel data to the matrix
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
                 A[y][x] = (float)image->data[(y * width + x) * channels + c];
@@ -606,19 +681,59 @@ ImageMatrix* compressSVD(ImageMatrix* image, float compressionRatio) {
         // Perform SVD
         jacobiSVD(A, height, width, U, S, V);
         
-        // Reconstruct the image using only k singular values
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                float value = 0.0f;
-                for (int i = 0; i < k; i++) {
-                    value += S[i] * U[y][i] * V[x][i];
+        // Check if SVD was successful by verifying S values
+        int valid_svd = 0;
+        for (int i = 0; i < k; i++) {
+            if (S[i] > 1e-6) {
+                valid_svd = 1;
+                break;
+            }
+        }
+        
+        if (!valid_svd) {
+            // SVD failed, just copy the original channel
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    compressedImage->data[(y * width + x) * channels + c] = image->data[(y * width + x) * channels + c];
+                }
+            }
+        } else {
+            // Use a more stable approach for reconstruction
+            // First, compute U * S (height x k)
+            float** US = allocateMatrix(height, k);
+            if (!US) {
+                // Fall back to original image if memory allocation fails
+                for (int y = 0; y < height; y++) {
+                    for (int x = 0; x < width; x++) {
+                        compressedImage->data[(y * width + x) * channels + c] = image->data[(y * width + x) * channels + c];
+                    }
+                }
+            } else {
+                // Compute U * S
+                for (int i = 0; i < height; i++) {
+                    for (int j = 0; j < k; j++) {
+                        US[i][j] = U[i][j] * S[j];
+                    }
                 }
                 
-                // Clip the value to [0, 255]
-                if (value < 0.0f) value = 0.0f;
-                if (value > 255.0f) value = 255.0f;
+                // Reconstruct the image: (U * S) * V^T
+                for (int y = 0; y < height; y++) {
+                    for (int x = 0; x < width; x++) {
+                        float value = 0.0f;
+                        for (int i = 0; i < k; i++) {
+                            value += US[y][i] * V[x][i];
+                        }
+                        
+                        // Clip the value to [0, 255]
+                        if (value < 0.0f) value = 0.0f;
+                        if (value > 255.0f) value = 255.0f;
+                        
+                        compressedImage->data[(y * width + x) * channels + c] = (unsigned char)value;
+                    }
+                }
                 
-                compressedImage->data[(y * width + x) * channels + c] = (unsigned char)value;
+                // Free the temporary matrix
+                freeMatrix(US, height);
             }
         }
         

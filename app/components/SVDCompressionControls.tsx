@@ -8,6 +8,14 @@ interface SVDCompressionControlsProps {
   onCompressedImageChange: (compressedImageData: ImageData) => void;
 }
 
+interface CompressionResult {
+  success: boolean;
+  svdFailed?: boolean;
+  warning?: string | null;
+  error?: string;
+  imageData: ImageData | null;
+}
+
 const SVDCompressionControls: React.FC<SVDCompressionControlsProps> = ({
   imageData,
   wasmModule,
@@ -15,6 +23,7 @@ const SVDCompressionControls: React.FC<SVDCompressionControlsProps> = ({
 }) => {
   const [compressionRatio, setCompressionRatio] = useState<number>(0.2);
   const [compressionStatus, setCompressionStatus] = useState<string>('');
+  const [compressionWarning, setCompressionWarning] = useState<string | null>(null);
   const [isCompressing, setIsCompressing] = useState<boolean>(false);
   const [progressStage, setProgressStage] = useState<number>(0);
   
@@ -46,6 +55,8 @@ const SVDCompressionControls: React.FC<SVDCompressionControlsProps> = ({
 
   const handleCompressionRatioChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setCompressionRatio(parseFloat(e.target.value));
+    // Clear previous warnings when changing ratio
+    setCompressionWarning(null);
   };
 
   const handleApplyCompression = () => {
@@ -56,23 +67,31 @@ const SVDCompressionControls: React.FC<SVDCompressionControlsProps> = ({
     
     setIsCompressing(true);
     setCompressionStatus('Starting compression...');
+    setCompressionWarning(null);
     setProgressStage(0);
     
     // Use setTimeout to prevent UI blocking
     setTimeout(() => {
       try {
         // Use the compressSVD function from wasmLoader
-        const compressedImageData = compressSVD(
+        const result = compressSVD(
           wasmModule,
           imageData,
           compressionRatio
-        );
+        ) as CompressionResult;
         
-        if (compressedImageData) {
-          onCompressedImageChange(compressedImageData);
-          setCompressionStatus('Compression complete!');
+        if (result.success && result.imageData) {
+          onCompressedImageChange(result.imageData);
+          
+          if (result.svdFailed) {
+            setCompressionStatus('Compression completed with issues');
+            setCompressionWarning(result.warning || 'SVD computation failed. The original image was returned.');
+          } else {
+            setCompressionStatus('Compression complete!');
+            setCompressionWarning(result.warning || null);
+          }
         } else {
-          setCompressionStatus('Error: Compression failed');
+          setCompressionStatus(`Error: ${result.error || 'Compression failed'}`);
         }
       } catch (error) {
         console.error('Error applying SVD compression:', error);
@@ -116,8 +135,13 @@ const SVDCompressionControls: React.FC<SVDCompressionControlsProps> = ({
         )}
       </button>
       {compressionStatus && !isCompressing && (
-        <div className="compression-status">
+        <div className={`compression-status ${compressionWarning ? 'with-warning' : ''}`}>
           Status: {compressionStatus}
+        </div>
+      )}
+      {compressionWarning && !isCompressing && (
+        <div className="compression-warning">
+          <span className="warning-icon">⚠️</span> {compressionWarning}
         </div>
       )}
       {isCompressing && (
@@ -132,4 +156,4 @@ const SVDCompressionControls: React.FC<SVDCompressionControlsProps> = ({
   );
 };
 
-export default SVDCompressionControls; 
+export default SVDCompressionControls;

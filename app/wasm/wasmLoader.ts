@@ -209,7 +209,7 @@ export const compressSVD = (
   
   if (!ptr) {
     console.error('Failed to allocate memory for image data');
-    return null;
+    return { success: false, error: 'Failed to allocate memory', imageData: null };
   }
   console.log('Memory allocated at address:', ptr);
   
@@ -231,7 +231,7 @@ export const compressSVD = (
   if (!imageMatrixPtr) {
     console.error('Failed to create ImageMatrix');
     module._free(ptr);
-    return null;
+    return { success: false, error: 'Failed to create image matrix', imageData: null };
   }
   console.log('ImageMatrix created at address:', imageMatrixPtr);
   
@@ -250,7 +250,7 @@ export const compressSVD = (
     console.error('Failed to compress image with SVD');
     module._freeImageMatrix(imageMatrixPtr);
     module._free(ptr);
-    return null;
+    return { success: false, error: 'SVD compression failed', imageData: null };
   }
   console.log('Compressed ImageMatrix created at address:', compressedMatrixPtr);
   
@@ -270,7 +270,7 @@ export const compressSVD = (
     module._freeImageMatrix(imageMatrixPtr);
     module._freeImageMatrix(compressedMatrixPtr);
     module._free(ptr);
-    return null;
+    return { success: false, error: 'Failed to convert compressed matrix to canvas data', imageData: null };
   }
   console.log('Canvas data created at address:', resultDataPtr);
   
@@ -289,6 +289,23 @@ export const compressSVD = (
     );
     
     console.log('Successfully created compressed ImageData');
+    
+    // Check if the compression actually changed the image
+    // Compare a sample of pixels to detect if SVD failed and original image was returned
+    let identicalPixels = 0;
+    const sampleSize = Math.min(1000, imageData.width * imageData.height);
+    const stride = Math.floor(imageData.data.length / sampleSize);
+    
+    for (let i = 0; i < imageData.data.length; i += stride) {
+      if (imageData.data[i] === resultArray[i]) {
+        identicalPixels++;
+      }
+    }
+    
+    const similarityPercentage = (identicalPixels / sampleSize) * 100;
+    console.log(`Image similarity check: ${similarityPercentage.toFixed(2)}% identical pixels`);
+    
+    const svdFailed = similarityPercentage > 95; // If more than 95% of sampled pixels are identical, SVD likely failed
     
     // Free WebAssembly memory
     if (module._freeImageMatrix) {
@@ -311,7 +328,12 @@ export const compressSVD = (
       module.ccall('free', null, ['number'], [resultDataPtr]);
     }
     
-    return compressedImageData;
+    return { 
+      success: true, 
+      svdFailed: svdFailed,
+      warning: svdFailed ? 'SVD computation failed, original image returned' : null,
+      imageData: compressedImageData 
+    };
   } catch (error) {
     console.error('Error creating compressed ImageData:', error);
     
@@ -336,6 +358,6 @@ export const compressSVD = (
       module.ccall('free', null, ['number'], [resultDataPtr]);
     }
     
-    return null;
+    return { success: false, error: `Error creating compressed ImageData: ${error}`, imageData: null };
   }
 }; 
