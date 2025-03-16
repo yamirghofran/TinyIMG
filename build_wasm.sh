@@ -39,7 +39,18 @@ mkdir -p public/wasm
 # Build the WebAssembly module
 echo "Building WebAssembly module..."
 cd c_src
-make
+# Update the exported functions list to include _compressSVD
+EXPORTED_FUNCTIONS="['_malloc','_free','_canvasDataToMatrix','_matrixToCanvasData','_createIdentityMatrix','_createRotationMatrix','_createScalingMatrix','_createFlipMatrix','_createWarpMatrix','_multiplyMatrices','_freeTransformMatrix','_applyTransformation','_freeImageMatrix','_compressSVD']"
+
+# Compile the C code to object file
+emcc -O3 -s WASM=1 -s EXPORTED_RUNTIME_METHODS=['ccall','cwrap'] -s ALLOW_MEMORY_GROWTH=1 -s MODULARIZE=1 -s EXPORT_NAME="ImageProcessor" -s EXPORTED_FUNCTIONS=$EXPORTED_FUNCTIONS -I./include -c src/image_processor.c -o src/image_processor.o
+
+# Link the object file to create the WebAssembly module
+emcc -O3 -s WASM=1 -s EXPORTED_RUNTIME_METHODS=['ccall','cwrap'] -s ALLOW_MEMORY_GROWTH=1 -s MODULARIZE=1 -s EXPORT_NAME="ImageProcessor" -s EXPORTED_FUNCTIONS=$EXPORTED_FUNCTIONS -I./include src/image_processor.o -o build/image_processor.js
+
+# Copy the WebAssembly files to the public directory
+cp build/image_processor.js ../public/wasm/
+cp build/image_processor.wasm ../public/wasm/
 cd ..
 
 echo "Build completed successfully!"

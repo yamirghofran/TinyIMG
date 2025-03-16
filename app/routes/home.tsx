@@ -4,6 +4,7 @@ import { CanvasWorkspace } from "../components/CanvasWorkspace";
 import { TransformationControls } from "../components/TransformationControls";
 import { DownloadOptions } from "../components/DownloadOptions";
 import { MatrixDisplay } from "../components/MatrixDisplay";
+import { CompressionControls } from "../components/CompressionControls";
 import { loadWasmModule } from "../wasm/wasmLoader";
 import "../styles/home.css";
 
@@ -20,6 +21,7 @@ export default function Home() {
   const [originalDimensions, setOriginalDimensions] = React.useState({ width: 0, height: 0 });
   const [imageFormat, setImageFormat] = React.useState("");
   const [transformedImageData, setTransformedImageData] = React.useState<ImageData | null>(null);
+  const [compressedImageData, setCompressedImageData] = React.useState<ImageData | null>(null);
   const [compressionLevel, setCompressionLevel] = React.useState(100);
   const [outputFormat, setOutputFormat] = React.useState("image/jpeg");
 
@@ -73,7 +75,16 @@ export default function Home() {
 
   const handleTransformedImageUpdate = useCallback((data: ImageData) => {
     setTransformedImageData(data);
+    // Reset compressed image when transformation changes
+    setCompressedImageData(null);
   }, []);
+
+  const handleCompressedImageUpdate = useCallback((data: ImageData) => {
+    setCompressedImageData(data);
+  }, []);
+
+  // Determine which image data to use for download
+  const imageDataForDownload = compressedImageData || transformedImageData;
 
   return (
     <div className="home-container">
@@ -107,6 +118,14 @@ export default function Home() {
               wasmModule={wasmModule}
             />
           )}
+
+          {transformedImageData && wasmModule && (
+            <CompressionControls
+              imageData={transformedImageData}
+              wasmModule={wasmModule}
+              onCompressedImageUpdate={handleCompressedImageUpdate}
+            />
+          )}
         </div>
         
         <div className="center-panel">
@@ -125,9 +144,9 @@ export default function Home() {
         </div>
         
         <div className="right-panel">
-          {transformedImageData && (
+          {imageDataForDownload && (
             <DownloadOptions 
-              transformedImageData={transformedImageData}
+              transformedImageData={imageDataForDownload}
               compressionLevel={compressionLevel}
               outputFormat={outputFormat}
             />

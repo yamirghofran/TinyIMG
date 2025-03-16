@@ -216,19 +216,262 @@ ImageMatrix* applyTransformation(ImageMatrix* image, TransformMatrix* transform)
 
 // Simple SVD-based compression (placeholder - a full SVD implementation would be more complex)
 ImageMatrix* compressSVD(ImageMatrix* image, float compressionRatio) {
-    // This is a simplified placeholder for SVD compression
-    // A real implementation would decompose the image matrix and reconstruct with fewer singular values
+    if (!image || compressionRatio <= 0 || compressionRatio > 100) return NULL;
     
-    // For now, we'll just return a copy of the image
-    if (!image) return NULL;
+    int width = image->width;
+    int height = image->height;
+    int channels = image->channels;
     
-    ImageMatrix* result = createImageMatrix(image->width, image->height, image->channels);
+    // Create result image
+    ImageMatrix* result = createImageMatrix(width, height, channels);
     if (!result) return NULL;
     
-    size_t dataSize = image->width * image->height * image->channels;
-    memcpy(result->data, image->data, dataSize);
+    // For very large images, use a simpler approach to avoid performance issues
+    int pixelCount = width * height;
+    if (pixelCount > 1000000) { // More than 1 million pixels
+        // For large images, use a simpler approximation
+        // Just copy the image and apply a simple quality reduction
+        float quality = compressionRatio / 100.0f;
+        for (int i = 0; i < height; i++) {
+            for (int j = 0; j < width; j++) {
+                for (int c = 0; c < channels; c++) {
+                    unsigned char pixel = image->data[(i * width + j) * channels + c];
+                    // Simple quality reduction by quantization
+                    int steps = 2 + (int)(254 * quality);
+                    int quantized = (pixel * steps / 256) * (256 / steps);
+                    result->data[(i * width + j) * channels + c] = (unsigned char)quantized;
+                }
+            }
+        }
+        return result;
+    }
     
-    // TODO: Implement actual SVD compression
+    // Process each channel separately
+    for (int c = 0; c < channels; c++) {
+        // Extract channel data into a matrix
+        float** matrix = (float**)malloc(height * sizeof(float*));
+        for (int i = 0; i < height; i++) {
+            matrix[i] = (float*)malloc(width * sizeof(float));
+            for (int j = 0; j < width; j++) {
+                matrix[i][j] = (float)image->data[(i * width + j) * channels + c];
+            }
+        }
+        
+        // Calculate the rank to keep based on compression ratio
+        // Higher compression ratio means keeping more singular values
+        int maxRank = (width < height) ? width : height;
+        int k = (int)(maxRank * compressionRatio / 100.0);
+        
+        // Limit k to a reasonable value for performance
+        if (k < 1) k = 1;
+        if (k > 50) k = 50; // Cap at 50 for performance
+        if (k > maxRank) k = maxRank;
+        
+        // Allocate memory for SVD components
+        float** U = (float**)malloc(height * sizeof(float*));
+        float* S = (float*)malloc(k * sizeof(float));
+        float** V = (float**)malloc(width * sizeof(float*));
+        
+        for (int i = 0; i < height; i++) {
+            U[i] = (float*)malloc(k * sizeof(float));
+            // Initialize to zero
+            for (int j = 0; j < k; j++) {
+                U[i][j] = 0.0f;
+            }
+        }
+        
+        for (int i = 0; i < width; i++) {
+            V[i] = (float*)malloc(k * sizeof(float));
+            // Initialize to zero
+            for (int j = 0; j < k; j++) {
+                V[i][j] = 0.0f;
+            }
+        }
+        
+        // Initialize S to zero
+        for (int i = 0; i < k; i++) {
+            S[i] = 0.0f;
+        }
+        
+        // For very small rank values, use a simpler approach
+        if (k <= 3) {
+            // For small k, just average the rows and columns
+            // This is a crude approximation but much faster
+            
+            // Calculate row and column averages
+            float* rowAvg = (float*)malloc(height * sizeof(float));
+            float* colAvg = (float*)malloc(width * sizeof(float));
+            
+            // Calculate row averages
+            for (int i = 0; i < height; i++) {
+                float sum = 0;
+                for (int j = 0; j < width; j++) {
+                    sum += matrix[i][j];
+                }
+                rowAvg[i] = sum / width;
+            }
+            
+            // Calculate column averages
+            for (int j = 0; j < width; j++) {
+                float sum = 0;
+                for (int i = 0; i < height; i++) {
+                    sum += matrix[i][j];
+                }
+                colAvg[j] = sum / height;
+            }
+            
+            // Use these as our first singular vectors
+            for (int i = 0; i < height; i++) {
+                U[i][0] = rowAvg[i];
+            }
+            
+            for (int j = 0; j < width; j++) {
+                V[j][0] = colAvg[j];
+            }
+            
+            // Normalize U
+            float normU = 0;
+            for (int i = 0; i < height; i++) {
+                normU += U[i][0] * U[i][0];
+            }
+            normU = sqrtf(normU);
+            if (normU > 1e-10) {
+                for (int i = 0; i < height; i++) {
+                    U[i][0] /= normU;
+                }
+            }
+            
+            // Normalize V
+            float normV = 0;
+            for (int j = 0; j < width; j++) {
+                normV += V[j][0] * V[j][0];
+            }
+            normV = sqrtf(normV);
+            if (normV > 1e-10) {
+                for (int j = 0; j < width; j++) {
+                    V[j][0] /= normV;
+                }
+            }
+            
+            // Calculate S[0]
+            for (int i = 0; i < height; i++) {
+                for (int j = 0; j < width; j++) {
+                    S[0] += U[i][0] * matrix[i][j] * V[j][0];
+                }
+            }
+            
+            free(rowAvg);
+            free(colAvg);
+        } else {
+            // For larger k, use power iteration but with fewer iterations
+            
+            // Initialize U with random values
+            srand(42); // Fixed seed for reproducibility
+            for (int i = 0; i < height; i++) {
+                for (int j = 0; j < k; j++) {
+                    U[i][j] = (float)rand() / RAND_MAX;
+                }
+            }
+            
+            // Limit iterations based on image size for performance
+            int maxIter = 5; // Reduced from 10 to 5
+            if (pixelCount > 500000) maxIter = 3; // Even fewer for larger images
+            
+            // Power iteration for SVD (simplified)
+            for (int iter = 0; iter < maxIter; iter++) {
+                // Orthogonalize U
+                for (int j = 0; j < k; j++) {
+                    for (int p = 0; p < j; p++) {
+                        float dot = 0;
+                        for (int i = 0; i < height; i++) {
+                            dot += U[i][j] * U[i][p];
+                        }
+                        for (int i = 0; i < height; i++) {
+                            U[i][j] -= dot * U[i][p];
+                        }
+                    }
+                    
+                    // Normalize
+                    float norm = 0;
+                    for (int i = 0; i < height; i++) {
+                        norm += U[i][j] * U[i][j];
+                    }
+                    norm = sqrtf(norm);
+                    if (norm > 1e-10) {
+                        for (int i = 0; i < height; i++) {
+                            U[i][j] /= norm;
+                        }
+                    }
+                }
+                
+                // Compute V = A^T * U
+                for (int j = 0; j < k; j++) {
+                    for (int i = 0; i < width; i++) {
+                        V[i][j] = 0;
+                        for (int p = 0; p < height; p++) {
+                            V[i][j] += matrix[p][i] * U[p][j];
+                        }
+                    }
+                }
+                
+                // Compute singular values and normalize V
+                for (int j = 0; j < k; j++) {
+                    float norm = 0;
+                    for (int i = 0; i < width; i++) {
+                        norm += V[i][j] * V[i][j];
+                    }
+                    norm = sqrtf(norm);
+                    S[j] = norm;
+                    
+                    if (norm > 1e-10) {
+                        for (int i = 0; i < width; i++) {
+                            V[i][j] /= norm;
+                        }
+                    }
+                }
+                
+                // Compute U = A * V
+                for (int j = 0; j < k; j++) {
+                    for (int i = 0; i < height; i++) {
+                        U[i][j] = 0;
+                        for (int p = 0; p < width; p++) {
+                            U[i][j] += matrix[i][p] * V[p][j];
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Reconstruct the compressed image: A ≈ U * S * V^T
+        for (int i = 0; i < height; i++) {
+            for (int j = 0; j < width; j++) {
+                float val = 0;
+                for (int p = 0; p < k; p++) {
+                    val += U[i][p] * S[p] * V[j][p];
+                }
+                
+                // Clamp values to valid pixel range
+                if (val < 0) val = 0;
+                if (val > 255) val = 255;
+                
+                result->data[(i * width + j) * channels + c] = (unsigned char)val;
+            }
+        }
+        
+        // Free allocated memory
+        for (int i = 0; i < height; i++) {
+            free(matrix[i]);
+            free(U[i]);
+        }
+        free(matrix);
+        free(U);
+        free(S);
+        
+        for (int i = 0; i < width; i++) {
+            free(V[i]);
+        }
+        free(V);
+    }
     
     return result;
 } 

@@ -88,6 +88,91 @@ export const freeTransformMatrix = (module: any, matrixPtr: number) => {
   }
 };
 
+export const compressSVD = (
+  module: any,
+  imageData: ImageData,
+  compressionRatio: number
+) => {
+  // Convert canvas image data to WebAssembly format
+  const imageDataArray = new Uint8ClampedArray(imageData.data);
+  
+  // Allocate memory in the WebAssembly heap
+  const numBytes = imageDataArray.length;
+  const ptr = module._malloc ? module._malloc(numBytes) : 
+             (module.asm ? module.asm.malloc(numBytes) : 
+             module.ccall('malloc', 'number', ['number'], [numBytes]));
+  
+  // Copy the image data to WebAssembly memory
+  const heap = module.HEAPU8;
+  heap.set(imageDataArray, ptr);
+  
+  // Create an ImageMatrix in WebAssembly
+  const imageMatrixPtr = module._canvasDataToMatrix ? 
+    module._canvasDataToMatrix(ptr, imageData.width, imageData.height, 4) :
+    module.ccall(
+      'canvasDataToMatrix',
+      'number',
+      ['number', 'number', 'number', 'number'],
+      [ptr, imageData.width, imageData.height, 4] // Assuming RGBA
+    );
+  
+  // Apply SVD compression
+  const resultMatrixPtr = module._compressSVD ?
+    module._compressSVD(imageMatrixPtr, compressionRatio) :
+    module.ccall(
+      'compressSVD',
+      'number',
+      ['number', 'number'],
+      [imageMatrixPtr, compressionRatio]
+    );
+  
+  // Convert the result back to canvas image data
+  const resultDataPtr = module._matrixToCanvasData ?
+    module._matrixToCanvasData(resultMatrixPtr) :
+    module.ccall(
+      'matrixToCanvasData',
+      'number',
+      ['number'],
+      [resultMatrixPtr]
+    );
+  
+  // Create a new ImageData from the result
+  const resultArray = new Uint8ClampedArray(
+    module.HEAPU8.buffer,
+    resultDataPtr,
+    imageData.width * imageData.height * 4
+  );
+  
+  const compressedImageData = new ImageData(
+    resultArray,
+    imageData.width,
+    imageData.height
+  );
+  
+  // Free WebAssembly memory
+  if (module._freeImageMatrix) {
+    module._freeImageMatrix(imageMatrixPtr);
+    module._freeImageMatrix(resultMatrixPtr);
+  } else {
+    module.ccall('freeImageMatrix', null, ['number'], [imageMatrixPtr]);
+    module.ccall('freeImageMatrix', null, ['number'], [resultMatrixPtr]);
+  }
+  
+  // Free the allocated memory
+  if (module._free) {
+    module._free(ptr);
+    module._free(resultDataPtr);
+  } else if (module.asm && module.asm.free) {
+    module.asm.free(ptr);
+    module.asm.free(resultDataPtr);
+  } else {
+    module.ccall('free', null, ['number'], [ptr]);
+    module.ccall('free', null, ['number'], [resultDataPtr]);
+  }
+  
+  return compressedImageData;
+};
+
 export const applyTransformation = (
   module: any, 
   imageData: ImageData, 
