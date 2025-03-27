@@ -6,6 +6,7 @@ import { Slider } from "./components/ui/slider";
 import { Label } from "./components/ui/label";
 import { Switch } from "./components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 
 // Declare Go types on window for TypeScript
 declare global {
@@ -32,6 +33,10 @@ function App() {
   const [flipHorizontal, setFlipHorizontal] = useState(false);
   const [flipVertical, setFlipVertical] = useState(false);
   const [transformMatrix, setTransformMatrix] = useState<mat4>(mat4.create());
+  const [rotationMatrix, setRotationMatrix] = useState<mat4>(mat4.create());
+  const [scaleMatrix, setScaleMatrix] = useState<mat4>(mat4.create());
+  const [shearMatrixState, setShearMatrixState] = useState<mat4>(mat4.create()); // Renamed to avoid conflict
+  const [translationMatrix, setTranslationMatrix] = useState<mat4>(mat4.create());
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const webGLCanvasRef = useRef<WebGLCanvasRef>(null);
@@ -251,30 +256,68 @@ function App() {
   };
 
 
-  // Calculate transformation matrix (remains the same)
+  // Calculate transformation matrices
   useEffect(() => {
-    const matrix = mat4.create();
-    const containerWidth = canvasContainerRef.current?.clientWidth ?? imageWidth;
-    const containerHeight = canvasContainerRef.current?.clientHeight ?? imageHeight;
-    const tx = containerWidth > 0 ? (translationX / containerWidth) * 2 : 0;
-    const ty = containerHeight > 0 ? (-translationY / containerHeight) * 2 : 0; // Y is inverted in clip space
+    // --- Calculate individual matrices ---
+    const rotMat = mat4.create();
+    mat4.rotateZ(rotMat, rotMat, glMatrix.toRadian(-rotation));
+    setRotationMatrix(rotMat);
 
-    mat4.translate(matrix, matrix, [tx, ty, 0]);
-    mat4.rotateZ(matrix, matrix, glMatrix.toRadian(-rotation));
-    const shearMatrix = mat4.fromValues(
-      1,    shearY, 0, 0, // Column 1
-      shearX, 1,      0, 0, // Column 2
-      0,    0,      1, 0, // Column 3
-      0,    0,      0, 1  // Column 4
-    );
-    mat4.multiply(matrix, matrix, shearMatrix);
+    const scaleMat = mat4.create();
     const finalScaleX = scaleX * (flipHorizontal ? -1 : 1);
     const finalScaleY = scaleY * (flipVertical ? -1 : 1);
-    mat4.scale(matrix, matrix, [finalScaleX, finalScaleY, 1]);
-    setTransformMatrix(matrix);
-  }, [rotation, scaleX, scaleY, shearX, shearY, translationX, translationY, flipHorizontal, flipVertical, imageWidth, imageHeight, isScaleLinked]);
+    mat4.scale(scaleMat, scaleMat, [finalScaleX, finalScaleY, 1]);
+    setScaleMatrix(scaleMat);
 
-  // Handle Download (remains the same)
+    const shearMat = mat4.fromValues(
+      1,    shearY, 0, 0, // Col 1
+      shearX, 1,      0, 0, // Col 2
+      0,    0,      1, 0, // Col 3
+      0,    0,      0, 1  // Col 4
+    );
+    setShearMatrixState(shearMat); // Use the state setter
+
+    const transMat = mat4.create();
+    const containerWidth = canvasContainerRef.current?.clientWidth ?? imageWidth; // Use imageWidth as fallback
+    const containerHeight = canvasContainerRef.current?.clientHeight ?? imageHeight; // Use imageHeight as fallback
+    const tx = containerWidth > 0 ? (translationX / containerWidth) * 2 : 0;
+    const ty = containerHeight > 0 ? (-translationY / containerHeight) * 2 : 0; // Y is inverted in clip space
+    mat4.translate(transMat, transMat, [tx, ty, 0]);
+    setTranslationMatrix(transMat);
+
+    // --- Calculate combined matrix (Order: Scale -> Shear -> Rotate -> Translate) ---
+    // Note: Matrix multiplication is read right-to-left for application order
+    const combinedMatrix = mat4.create();
+    mat4.multiply(combinedMatrix, transMat, rotMat); // T * R
+    mat4.multiply(combinedMatrix, combinedMatrix, shearMat); // T * R * Sh
+    mat4.multiply(combinedMatrix, combinedMatrix, scaleMat); // T * R * Sh * Sc
+    setTransformMatrix(combinedMatrix);
+
+  }, [rotation, scaleX, scaleY, shearX, shearY, translationX, translationY, flipHorizontal, flipVertical, imageWidth, imageHeight, isScaleLinked]); // Added isScaleLinked dependency back
+
+  // Helper function to display a matrix with modern styling
+  const MatrixDisplay = ({ matrix }: { matrix: mat4 }) => {
+    const formatNumber = (n: number) => n.toFixed(3);
+    // Flatten the matrix in column-major order as it's stored, then map to grid cells
+    const cells = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map(index => (
+      <div key={index} className="p-1 text-center border border-border/50 rounded-sm bg-muted/50 text-xs font-mono ">
+        {formatNumber(matrix[index])}
+      </div>
+    ));
+
+    return (
+      <div className="grid grid-cols-4 gap-1 p-1 bg-muted/20 rounded">
+        {/* Render cells row by row for visual layout */}
+        {cells[0]} {cells[4]} {cells[8]} {cells[12]} {/* Row 1 */}
+        {cells[1]} {cells[5]} {cells[9]} {cells[13]} {/* Row 2 */}
+        {cells[2]} {cells[6]} {cells[10]} {cells[14]} {/* Row 3 */}
+        {cells[3]} {cells[7]} {cells[11]} {cells[15]} {/* Row 4 */}
+      </div>
+    );
+  };
+
+
+  // Handle Download
   const handleDownload = () => {
     const canvasElement = webGLCanvasRef.current?.getCanvasElement();
     if (canvasElement && imageSrc) {
@@ -546,7 +589,7 @@ function App() {
           </CardHeader>
           <CardContent className="flex-1 space-y-6 overflow-y-auto">
             {/* WASM Filters */}
-            <div className="space-y-2 pt-4 border-t border-border">
+            <div className="space-y-2 border-border">
               <Label className="text-sm font-medium">Filters</Label>
               <div className="grid grid-cols-2 gap-2">
                 {['blur', 'sharpen', 'edge', 'emboss'].map(filter => (
@@ -581,6 +624,34 @@ function App() {
                  Apply SVD
                </Button>
             </div>
+            {/* Transformation Matrices Display */}
+           <div className="pt-4 border-t border-border">
+             <Label className="text-sm font-medium mb-2 block">Transformation Matrices</Label>
+             <Tabs defaultValue="overall" className="w-full">
+               <TabsList className="grid w-full grid-cols-3 mb-2 h-auto flex-wrap"> {/* Adjusted grid/wrap */}
+                 <TabsTrigger value="overall" className="text-xs px-2 py-1">Overall</TabsTrigger>
+                 <TabsTrigger value="translate" className="text-xs px-2 py-1">Translate</TabsTrigger>
+                 <TabsTrigger value="rotate" className="text-xs px-2 py-1">Rotate</TabsTrigger>
+                 <TabsTrigger value="scale" className="text-xs px-2 py-1">Scale</TabsTrigger>
+                 <TabsTrigger value="shear" className="text-xs px-2 py-1">Shear</TabsTrigger>
+               </TabsList>
+               <TabsContent value="overall">
+                 <MatrixDisplay matrix={transformMatrix} />
+               </TabsContent>
+               <TabsContent value="translate">
+                 <MatrixDisplay matrix={translationMatrix} />
+               </TabsContent>
+               <TabsContent value="rotate">
+                 <MatrixDisplay matrix={rotationMatrix} />
+               </TabsContent>
+               <TabsContent value="scale">
+                 <MatrixDisplay matrix={scaleMatrix} />
+               </TabsContent>
+               <TabsContent value="shear">
+                 <MatrixDisplay matrix={shearMatrixState} />
+               </TabsContent>
+             </Tabs>
+           </div>
           </CardContent>
           {/* Download Button */}
           <div className="p-4 border-t border-border">
@@ -588,6 +659,7 @@ function App() {
               Download Image
             </Button>
           </div>
+
         </Card>
       </aside>
     </div>
