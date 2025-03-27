@@ -499,12 +499,7 @@ function App() {
                </Button>
             </div>
           </CardContent>
-          {/* Download Button */}
-          <div className="p-4 border-t border-border">
-            <Button onClick={handleDownload} className="w-full" disabled={!imageSrc}>
-              Download Image
-            </Button>
-          </div>
+          {/* Download Button moved to right sidebar */}
         </Card>
       </aside>
 
@@ -542,6 +537,59 @@ function App() {
           )}
         </div>
       </main>
+
+      {/* Right Sidebar */}
+      <aside className="w-72 border-l border-border p-4 flex flex-col">
+        <Card className="flex-grow flex flex-col">
+          <CardHeader>
+            <CardTitle>Processing & Export</CardTitle> {/* Changed title */}
+          </CardHeader>
+          <CardContent className="flex-1 space-y-6 overflow-y-auto">
+            {/* WASM Filters */}
+            <div className="space-y-2 pt-4 border-t border-border">
+              <Label className="text-sm font-medium">Filters</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {['blur', 'sharpen', 'edge', 'emboss'].map(filter => (
+                  <Button key={filter} variant="outline" size="sm" onClick={() => handleApplyFilter(filter)} disabled={wasmLoading || !imageSrc}>
+                    {filter.charAt(0).toUpperCase() + filter.slice(1)}
+                  </Button>
+                ))}
+              </div>
+              {wasmLoading && <p className="text-xs text-muted-foreground">Processing...</p>}
+              {wasmError && <p className="text-xs text-destructive">{wasmError}</p>}
+            </div>
+
+            {/* WASM SVD Compression */}
+            <div className="space-y-4 pt-4 border-t border-border">
+               <Label className="text-sm font-medium">SVD Compression</Label>
+               <div className="space-y-2">
+                 <div className="flex justify-between items-center">
+                   <Label htmlFor="svd-rank-slider-right">Rank</Label> {/* Ensure unique ID if needed */}
+                   <span className="text-sm text-muted-foreground">{svdRank}</span>
+                 </div>
+                 <Slider
+                   id="svd-rank-slider-right" // Ensure unique ID if needed
+                   min={1}
+                   max={Math.max(1, Math.min(imageWidth, imageHeight, 100))}
+                   step={1}
+                   value={[svdRank]}
+                   onValueChange={(value) => setSvdRank(value[0])}
+                   disabled={wasmLoading || !imageSrc || imageWidth === 0 || imageHeight === 0}
+                 />
+               </div>
+               <Button onClick={handleApplySVD} className="w-full" disabled={wasmLoading || !imageSrc}>
+                 Apply SVD
+               </Button>
+            </div>
+          </CardContent>
+          {/* Download Button */}
+          <div className="p-4 border-t border-border">
+            <Button onClick={handleDownload} className="w-full" disabled={!imageSrc}>
+              Download Image
+            </Button>
+          </div>
+        </Card>
+      </aside>
     </div>
   )
 }
