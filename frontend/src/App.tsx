@@ -1,11 +1,20 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, ScriptHTMLAttributes } from 'react'; // Added ScriptHTMLAttributes
 import { mat4, glMatrix } from 'gl-matrix';
-import WebGLCanvas from './components/WebGLCanvas';
+import WebGLCanvas, { WebGLCanvasRef } from './components/WebGLCanvas'; // Import WebGLCanvasRef
 import { Button } from "./components/ui/button";
 import { Slider } from "./components/ui/slider";
 import { Label } from "./components/ui/label";
 import { Switch } from "./components/ui/switch"; // Import Shadcn Switch
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
+
+// Declare Go types on window for TypeScript
+declare global {
+  interface Window {
+    Go: any; // Type for the Go WASM loader class
+    applyFilter?: (imageData: any, filterType: string) => Promise<any>; // Define potential functions
+    compressSVD?: (imageData: any, rank: number) => Promise<any>;
+  }
+}
 
 function App() {
   const [image, setImage] = useState<string | null>(null);
@@ -28,7 +37,14 @@ function App() {
   const [transformMatrix, setTransformMatrix] = useState<mat4>(mat4.create());
   const [isDraggingOver, setIsDraggingOver] = useState(false); // State for drag-over visual feedback
   const canvasContainerRef = useRef<HTMLDivElement>(null);
-  const webGLCanvasRef = useRef<HTMLCanvasElement>(null); // Ref for the WebGL canvas
+  const webGLCanvasRef = useRef<WebGLCanvasRef>(null); // Update ref type to use the exposed handle
+  const goRef = useRef<any>(null); // Ref to store the Go instance
+
+  // WASM Loading State
+  const [wasmLoading, setWasmLoading] = useState(true);
+  const [wasmError, setWasmError] = useState<string | null>(null);
+  // SVD State
+  const [svdRank, setSvdRank] = useState(50); // Default rank for SVD
 
   const processImageFile = (file: File) => {
     if (file && file.type.startsWith('image/')) {
@@ -89,6 +105,83 @@ function App() {
       processImageFile(file);
     }
   };
+
+  // --- WASM Loading Effect ---
+  useEffect(() => {
+    // Ensure wasm_exec.js is loaded only once
+    if (!document.getElementById('wasm-exec-script')) {
+      const script = document.createElement('script');
+      script.id = 'wasm-exec-script';
+      script.src = '/wasm_exec.js'; // Assumes it's in the public folder
+      script.async = true;
+      script.onload = () => {
+        console.log("wasm_exec.js loaded.");
+        loadWasm(); // Load WASM after the script is ready
+      };
+      script.onerror = () => {
+        console.error("Failed to load wasm_exec.js");
+        setWasmError("Failed to load wasm_exec.js");
+        setWasmLoading(false);
+      };
+      document.body.appendChild(script);
+    } else if (window.Go) {
+      // If script is already there and Go is available, try loading WASM
+      loadWasm();
+    } else {
+      // Script tag exists but Go object not ready, wait for its onload (should have triggered above)
+      console.warn("wasm_exec.js script tag found, but Go object not ready yet.");
+      // Set a timeout as a fallback? Or rely on the onload above.
+    }
+
+    async function loadWasm() {
+      if (!window.Go) {
+        console.error("Go runtime not available");
+        setWasmError("Go runtime not available");
+        setWasmLoading(false);
+        return;
+      }
+      if (goRef.current) {
+        console.log("WASM already instantiated.");
+        setWasmLoading(false); // Already loaded
+        return;
+      }
+
+      try {
+        console.log("Instantiating Go WASM...");
+        setWasmLoading(true);
+        setWasmError(null);
+        const go = new window.Go();
+        goRef.current = go; // Store the instance
+
+        const wasmPath = '/main.wasm'; // Assumes it's in the public folder
+        const result = await WebAssembly.instantiateStreaming(fetch(wasmPath), go.importObject);
+
+        console.log("WASM instantiation successful. Running module...");
+        // Don't await go.run, as it blocks until the WASM exits (which it shouldn't)
+        go.run(result.instance);
+        console.log("Go WASM module finished running setup (main function returned or select{} started).");
+        // Note: Go functions (applyFilter, compressSVD) are now globally available if registered correctly in Go main.
+
+        // Check if functions are registered (optional sanity check)
+        if (typeof window.applyFilter !== 'function' || typeof window.compressSVD !== 'function') {
+           console.warn("WASM functions (applyFilter, compressSVD) not found on window after run. Check Go registration.");
+           // Don't set error yet, maybe they appear slightly later?
+        } else {
+           console.log("WASM functions found on window.");
+        }
+
+        setWasmLoading(false);
+      } catch (error) {
+        console.error("Error loading or running WASM:", error);
+        setWasmError(`Error loading WASM: ${error}`);
+        setWasmLoading(false);
+      }
+    }
+
+    // Cleanup function if needed (e.g., terminate worker if used)
+    // return () => { ... };
+
+  }, []); // Empty dependency array ensures this runs only once on mount
 
   // Handlers for linked scale
   const handleScaleXChange = (value: number) => {
@@ -164,15 +257,140 @@ function App() {
   }, [rotation, scaleX, scaleY, shearX, shearY, translationX, translationY, flipHorizontal, flipVertical, imageWidth, imageHeight, isScaleLinked /* Add isScaleLinked though it doesn't directly affect matrix */]);
 
   const handleDownload = () => {
-    const canvas = webGLCanvasRef.current; // Use the ref to get the canvas
-    if (canvas && image) {
+    // Get the actual canvas element using the method exposed via the ref
+    const canvasElement = webGLCanvasRef.current?.getCanvasElement();
+    if (canvasElement && image) {
       // With preserveDrawingBuffer: true, the canvas content should be available
-      const dataURL = canvas.toDataURL('image/png');
+      const dataURL = canvasElement.toDataURL('image/png');
       const link = document.createElement('a');
       link.download = 'transformed-image.png';
       link.href = dataURL;
       link.click();
     }
+  };
+
+  // --- WASM Processing Handlers ---
+  const handleApplyFilter = async (filterType: string) => {
+    if (wasmLoading || !image || !webGLCanvasRef.current || typeof window.applyFilter !== 'function') {
+      console.warn("WASM not ready, no image, canvas ref missing, or applyFilter function not available.");
+      return;
+    }
+
+    const gl = webGLCanvasRef.current.getGL();
+    const canvasElement = webGLCanvasRef.current.getCanvasElement();
+    if (!gl || !canvasElement) {
+      console.error("WebGL context or canvas element not available.");
+      return;
+    }
+
+    const width = canvasElement.width;
+    const height = canvasElement.height;
+
+    console.log(`Applying filter '${filterType}' via WASM...`);
+    setWasmLoading(true); // Indicate processing
+    setWasmError(null);
+
+    try {
+      // 1. Read pixels from WebGL canvas
+      const pixelData = new Uint8Array(width * height * 4);
+      // Bind the framebuffer (might be needed depending on setup, often default is fine)
+      // gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixelData);
+      console.log(`Read ${pixelData.length} bytes from canvas.`);
+
+      // 2. Prepare data for Go
+      // Need to pass Uint8ClampedArray to Go function as per its expectation
+      const imageDataForGo = {
+        width: width,
+        height: height,
+        // Create Uint8ClampedArray view on the same buffer
+        data: new Uint8ClampedArray(pixelData.buffer)
+      };
+
+      // 3. Call WASM function
+      // The Go wrapper returns the result directly (or an error object)
+      const result = await window.applyFilter(imageDataForGo, filterType);
+
+      // 4. Handle result
+      if (result && result.error) {
+        throw new Error(result.error);
+      } else if (result instanceof Uint8ClampedArray) {
+         console.log(`Filter '${filterType}' applied successfully. Updating texture.`);
+         // 5. Update WebGL Texture
+         webGLCanvasRef.current.updateTexture(result, width, height);
+      } else {
+         // Attempt to check if it's a JS object representing the error
+         if (typeof result === 'object' && result !== null && 'error' in result) {
+            throw new Error(result.error);
+         }
+         throw new Error("Invalid data returned from WASM applyFilter function.");
+      }
+
+    } catch (error: any) {
+      console.error(`Error applying filter '${filterType}':`, error);
+      setWasmError(`Filter error: ${error.message || error}`);
+    } finally {
+      setWasmLoading(false); // Finish processing
+    }
+  };
+
+  const handleApplySVD = async () => {
+     if (wasmLoading || !image || !webGLCanvasRef.current || typeof window.compressSVD !== 'function') {
+       console.warn("WASM not ready, no image, canvas ref missing, or compressSVD function not available.");
+       return;
+     }
+
+     const gl = webGLCanvasRef.current.getGL();
+     const canvasElement = webGLCanvasRef.current.getCanvasElement();
+     if (!gl || !canvasElement) {
+       console.error("WebGL context or canvas element not available.");
+       return;
+     }
+
+     const width = canvasElement.width;
+     const height = canvasElement.height;
+
+     console.log(`Applying SVD compression (rank ${svdRank}) via WASM...`);
+     setWasmLoading(true); // Indicate processing
+     setWasmError(null);
+
+     try {
+       // 1. Read pixels
+       const pixelData = new Uint8Array(width * height * 4);
+       gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixelData);
+       console.log(`Read ${pixelData.length} bytes from canvas.`);
+
+       // 2. Prepare data for Go
+       const imageDataForGo = {
+         width: width,
+         height: height,
+         data: new Uint8ClampedArray(pixelData.buffer)
+       };
+
+       // 3. Call WASM function
+       const result = await window.compressSVD(imageDataForGo, svdRank);
+
+       // 4. Handle result
+       if (result && result.error) {
+         throw new Error(result.error);
+       } else if (result instanceof Uint8ClampedArray) {
+          console.log(`SVD (rank ${svdRank}) applied successfully. Updating texture.`);
+          // 5. Update WebGL Texture
+          webGLCanvasRef.current.updateTexture(result, width, height);
+       } else {
+          // Attempt to check if it's a JS object representing the error
+          if (typeof result === 'object' && result !== null && 'error' in result) {
+             throw new Error(result.error);
+          }
+          throw new Error("Invalid data returned from WASM compressSVD function.");
+       }
+
+     } catch (error: any) {
+       console.error(`Error applying SVD:`, error);
+       setWasmError(`SVD error: ${error.message || error}`);
+     } finally {
+       setWasmLoading(false); // Finish processing
+     }
   };
 
 
@@ -330,6 +548,43 @@ function App() {
                 Flip Vertical {flipVertical ? '(On)' : '(Off)'}
               </Button>
             </div>
+
+            {/* --- WASM Filters --- */}
+            <div className="space-y-2 pt-4 border-t border-border">
+              <Label className="text-sm font-medium">Filters</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="outline" size="sm" onClick={() => handleApplyFilter('blur')} disabled={wasmLoading || !image}>Blur</Button>
+                <Button variant="outline" size="sm" onClick={() => handleApplyFilter('sharpen')} disabled={wasmLoading || !image}>Sharpen</Button>
+                <Button variant="outline" size="sm" onClick={() => handleApplyFilter('edge')} disabled={wasmLoading || !image}>Edge</Button>
+                <Button variant="outline" size="sm" onClick={() => handleApplyFilter('emboss')} disabled={wasmLoading || !image}>Emboss</Button>
+              </div>
+              {wasmLoading && <p className="text-xs text-muted-foreground">WASM Loading...</p>}
+              {wasmError && <p className="text-xs text-destructive">{wasmError}</p>}
+            </div>
+
+            {/* --- WASM SVD Compression --- */}
+            <div className="space-y-4 pt-4 border-t border-border">
+               <Label className="text-sm font-medium">SVD Compression</Label>
+               <div className="space-y-2">
+                 <div className="flex justify-between items-center">
+                   <Label htmlFor="svd-rank-slider">Rank</Label>
+                   <span className="text-sm text-muted-foreground">{svdRank}</span>
+                 </div>
+                 <Slider
+                   id="svd-rank-slider"
+                   min={1}
+                   max={Math.min(imageWidth, imageHeight, 100)} // Limit max rank reasonably
+                   step={1}
+                   value={[svdRank]}
+                   onValueChange={(value) => setSvdRank(value[0])}
+                   disabled={wasmLoading || !image || imageWidth === 0 || imageHeight === 0}
+                 />
+               </div>
+               <Button onClick={handleApplySVD} className="w-full" disabled={wasmLoading || !image}>
+                 Apply SVD
+               </Button>
+            </div>
+
 
           </CardContent>
           {/* Download Button at the bottom */}

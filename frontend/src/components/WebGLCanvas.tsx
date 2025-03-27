@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, forwardRef } from 'react';
+import React, { useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { mat4 } from 'gl-matrix';
 
 interface WebGLCanvasProps {
@@ -7,6 +7,13 @@ interface WebGLCanvasProps {
   width: number;
   height: number;
   preserveDrawingBuffer?: boolean; // Add prop for preserving buffer
+}
+
+// Define the interface for the methods exposed via the ref
+export interface WebGLCanvasRef {
+  getGL: () => WebGLRenderingContext | null;
+  updateTexture: (data: Uint8ClampedArray, width: number, height: number) => void;
+  getCanvasElement: () => HTMLCanvasElement | null;
 }
 
 const vertexShaderSource = `
@@ -68,11 +75,13 @@ function createProgram(gl: WebGLRenderingContext, vertexShader: WebGLShader, fra
 }
 
 // Use forwardRef to pass the canvas ref up
-const WebGLCanvas = forwardRef<HTMLCanvasElement, WebGLCanvasProps>(
+// The first generic should be the type of the exposed handle (WebGLCanvasRef)
+const WebGLCanvas = forwardRef<WebGLCanvasRef, WebGLCanvasProps>(
   ({ imageSrc, transformMatrix, width, height, preserveDrawingBuffer = false }, ref) => {
-  // Use the forwarded ref OR an internal ref if none is provided
+  // Use an internal ref for the actual canvas DOM element
   const internalCanvasRef = useRef<HTMLCanvasElement>(null);
-  const canvasRef = ref || internalCanvasRef;
+  // Note: 'ref' passed to useImperativeHandle is the forwarded ref from the parent.
+  // We use internalCanvasRef for direct DOM access within this component.
   const glRef = useRef<WebGLRenderingContext | null>(null);
   const programRef = useRef<WebGLProgram | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
@@ -82,8 +91,8 @@ const WebGLCanvas = forwardRef<HTMLCanvasElement, WebGLCanvasProps>(
 
   // Initialize WebGL context, shaders, program, buffers
   useEffect(() => {
-    // Ensure canvasRef is not null and is the correct type
-    const canvas = (canvasRef as React.RefObject<HTMLCanvasElement>)?.current;
+    // Ensure internalCanvasRef is not null and is the correct type
+    const canvas = internalCanvasRef.current;
     if (!canvas) return;
 
     // Get context with preserveDrawingBuffer option
@@ -275,14 +284,59 @@ const WebGLCanvas = forwardRef<HTMLCanvasElement, WebGLCanvasProps>(
     drawScene();
   }, [transformMatrix, width, height]); // Redraw also if canvas size props change
 
+  // Expose methods to parent component via ref
+  useImperativeHandle(ref, () => ({
+    getGL: () => glRef.current,
+    getCanvasElement: () => internalCanvasRef.current ?? null,
+    updateTexture: (data: Uint8ClampedArray, texWidth: number, texHeight: number) => {
+      const gl = glRef.current;
+      const texture = textureRef.current;
+      if (!gl || !texture) {
+        console.error("Cannot update texture: WebGL context or texture not available");
+        return;
+      }
+
+      // Bind the texture
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+
+      // Upload the new pixel data
+      // Use texImage2D to potentially resize the texture storage if dimensions changed,
+      // or texSubImage2D if dimensions are guaranteed to be the same.
+      // Let's use texImage2D for flexibility.
+      gl.texImage2D(
+        gl.TEXTURE_2D, // target
+        0,             // level
+        gl.RGBA,       // internalformat
+        texWidth,      // width
+        texHeight,     // height
+        0,             // border
+        gl.RGBA,       // format
+        gl.UNSIGNED_BYTE, // type
+        data           // pixels
+      );
+
+      // Update the imageRef dimensions if needed (though imageRef isn't strictly used after initial load now)
+      // if (imageRef.current) {
+      //   imageRef.current.width = texWidth;
+      //   imageRef.current.height = texHeight;
+      // }
+
+      console.log(`Texture updated with ${texWidth}x${texHeight} data.`);
+
+      // Redraw the scene with the updated texture
+      drawScene();
+    },
+  }));
+
+
   // Use props for initial size, but let WebGL control internal buffer size
   const initialWidth = width || 300;
   const initialHeight = height || 150;
 
   return (
     <div style={{ width: initialWidth, height: initialHeight, overflow: 'hidden' }}>
-      {/* Assign the ref to the canvas element */}
-      <canvas ref={canvasRef as React.RefObject<HTMLCanvasElement>} width={initialWidth} height={initialHeight} />
+      {/* Assign the internal ref to the actual canvas element */}
+      <canvas ref={internalCanvasRef} width={initialWidth} height={initialHeight} />
     </div>
   );
 });
