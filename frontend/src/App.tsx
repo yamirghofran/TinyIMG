@@ -7,6 +7,7 @@ import { Label } from "./components/ui/label";
 import { Switch } from "./components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
+import { Github } from 'lucide-react'; // Import Github icon
 
 // Declare Go types on window for TypeScript
 declare global {
@@ -512,6 +513,18 @@ function App() {
           </CardContent>
           {/* Download Button moved to right sidebar */}
         </Card>
+        {/* GitHub Link Button */}
+        <div className="mt-auto pt-4"> {/* Pushes the button to the bottom */}
+          <a
+            href="https://github.com/yamirghofran/TinyIMG" // Replace with your actual GitHub repo URL
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center px-3 py-2 border border-border text-sm font-medium rounded-md text-foreground bg-secondary hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ring"
+          >
+            <Github className="w-4 h-4 mr-2" />
+            View on Github
+          </a>
+        </div>
       </aside>
 
       {/* Main content area */}
