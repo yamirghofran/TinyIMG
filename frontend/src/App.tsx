@@ -45,6 +45,7 @@ function App() {
   const [wasmLoading, setWasmLoading] = useState(true);
   const [wasmError, setWasmError] = useState<string | null>(null);
   const [svdRank, setSvdRank] = useState(50);
+  const [transformedArea, setTransformedArea] = useState<number | null>(null); // State for transformed area
 
   // Function to get original pixel data from an image source
   const getPixelDataFromImageSrc = (src: string): Promise<{ data: Uint8ClampedArray; width: number; height: number }> => {
@@ -293,6 +294,11 @@ function App() {
     mat4.multiply(combinedMatrix, combinedMatrix, scaleMat); // T * R * Sh * Sc
     setTransformMatrix(combinedMatrix);
 
+    // Calculate and set transformed area
+    const determinant = mat4.determinant(combinedMatrix);
+    const area = 4 * Math.abs(determinant); // Original clip space area is 4 (-1 to 1)
+    setTransformedArea(area);
+
   }, [rotation, scaleX, scaleY, shearX, shearY, translationX, translationY, flipHorizontal, flipVertical, imageWidth, imageHeight, isScaleLinked]); // Added isScaleLinked dependency back
 
   // Helper function to display a matrix with modern styling
@@ -524,7 +530,7 @@ function App() {
         )}
 
         {/* Canvas Container */}
-        <div className={`w-full h-full flex items-center justify-center relative border rounded-lg ${isDraggingOver ? 'border-primary border-dashed border-2' : 'border-border'} bg-muted/40`}>
+        <div className={`w-full h-full flex items-center justify-center relative border rounded-lg ${isDraggingOver ? 'border-primary border-dashed border-2' : 'border-border'} bg-muted/40 overflow-hidden`}>
           {imageSrc ? (
             <WebGLCanvas
               ref={webGLCanvasRef}
@@ -586,6 +592,18 @@ function App() {
                  Apply SVD
                </Button>
             </div>
+
+            {/* Transformed Area Display */}
+            {imageSrc && transformedArea !== null && (
+              <div className="pb-4 mb-4"> {/* Add padding and bottom border for separation */}
+                <Label className="text-sm font-medium mb-1 block">Transformed Area</Label>
+                {/* Display the area, formatted to a few decimal places */}
+                <p className="text-lg font-semibold text-center">{transformedArea.toFixed(4)}</p>
+                {/* Add context about the calculation */}
+                <p className="text-xs text-muted-foreground text-center">Formula: Area = 4 × |det(M)|</p>
+              </div>
+            )}
+
             {/* Transformation Matrices Display */}
            <div className="pt-4 border-t border-border">
              <Label className="text-sm font-medium mb-2 block">Transformation Matrices</Label>
