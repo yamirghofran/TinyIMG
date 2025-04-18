@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { mat4 } from 'gl-matrix';
 
 interface WebGLCanvasProps {
@@ -334,10 +334,14 @@ const WebGLCanvas = forwardRef<WebGLCanvasRef, WebGLCanvasProps>(
   const initialHeight = height || 150;
 
   return (
-    <div style={{ width: initialWidth, height: initialHeight, overflow: 'hidden' }}>
-      {/* Assign the internal ref to the actual canvas element */}
-      <canvas ref={internalCanvasRef} width={initialWidth} height={initialHeight} />
-    </div>
+    // Assign the internal ref to the actual canvas element
+    // Apply styles to ensure block display and prevent potential inline spacing issues
+    <canvas
+      ref={internalCanvasRef}
+      width={initialWidth}
+      height={initialHeight}
+      style={{ display: 'block' }} // Ensure block display
+    />
   );
 });
 
