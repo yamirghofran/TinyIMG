@@ -1,0 +1,244 @@
+\documentclass{article}
+\usepackage{amsmath} % For mathematical environments
+\usepackage{graphicx} % To include graphics if needed (though not planned for this)
+% \usepackage{geometry} % For page layout - Moved later
+\usepackage{listings} % For code snippets (optional, maybe just reference files)
+\usepackage{float} % For placing figures/tables
+\usepackage{hyperref} % For hyperlinks (optional) - Moved near end as recommended
+\usepackage{geometry} % For page layout
+
+\geometry{a4paper, margin=1in} % Standard A4 layout
+
+\title{Matrix Mathematics in the TinyIMG Project}
+
+\begin{document}
+
+\section{Introduction}
+
+The TinyIMG project provides users with an interactive platform for uploading, transforming, filtering, and compressing images directly in the browser. Central to its functionality is the extensive use of matrix mathematics, a cornerstone of computer graphics and image processing. Matrices provide a powerful and efficient framework for handling various operations, from altering the visual presentation of an image to modifying its underlying pixel data.
+
+This paper focuses on four key areas where matrix mathematics is applied in TinyIMG:
+\begin{itemize}
+    \item \textbf{Representation:} How image data and geometric structures are represented using matrices.
+    \item \textbf{Geometric Transformations:} The use of 4x4 transformation matrices in the WebGL frontend (\texttt{frontend/src/components/WebGLCanvas.tsx}, \texttt{frontend/src/App.tsx}) for operations like rotation, scaling, shearing, and translation.
+    \item \textbf{Image Filtering:} The application of convolution kernels (small matrices) in the Go backend (\texttt{backend/main.go}) to achieve effects such as blur, sharpen, and edge detection.
+    \item \textbf{Image Compression:} The implementation of Singular Value Decomposition (SVD) in the Go backend (\texttt{backend/main.go}) for lossy image compression by approximating color channel matrices.
+\end{itemize}
+We will analyze the relevant code sections and explain the underlying mathematical principles, demonstrating the practical application of linear algebra concepts within a modern web application.
+
+\section{Matrix Representation}
+
+Matrices serve different representational purposes in the frontend and backend of the TinyIMG project.
+
+\subsection{Backend: Image Channel Representation}
+In the Go backend (\texttt{backend/main.go}), specifically within the SVD compression logic (\texttt{compressSVD} function), an uploaded image's pixel data is decomposed into its constituent color channels (Red, Green, Blue, and Alpha). Each channel is then represented as a dense matrix using the \texttt{gonum/mat} library (\texttt{mat.NewDense}).
+
+Let an image have dimensions $W \times H$ (width $\times$ height). For a given channel (e.g., Red), its intensity values are arranged into an $H \times W$ matrix, where each element $M_{ij}$ corresponds to the intensity value of that channel at pixel coordinates $(j, i)$ (column $j$, row $i$).
+\[
+M_{\text{channel}} =
+\begin{pmatrix}
+p_{0,0} & p_{1,0} & \cdots & p_{W-1,0} \\
+p_{0,1} & p_{1,1} & \cdots & p_{W-1,1} \\
+\vdots & \vdots & \ddots & \vdots \\
+p_{0,H-1} & p_{1,H-1} & \cdots & p_{W-1,H-1}
+\end{pmatrix}
+\]
+This matrix representation allows the application of linear algebra techniques like SVD directly to the image data for processing.
+
+\subsection{Frontend: Geometric and Texture Coordinate Representation}
+The WebGL frontend (\texttt{frontend/src/components/WebGLCanvas.tsx}) uses matrices primarily for geometric transformation. The geometry itself, typically a simple quadrilateral (quad) covering the canvas area, is defined by vertex positions. These vertices are specified in a local coordinate system (often ranging from -1 to +1 in clip space) and stored in a vertex buffer object (VBO).
+
+Crucially, alongside vertex positions, WebGL uses \textbf{texture coordinates} (often called UV coordinates) to map a 2D image (the texture) onto the 3D geometry. These coordinates typically range from (0,0) at one corner of the texture (e.g., bottom-left) to (1,1) at the opposite corner (e.g., top-right). Each vertex of the geometry is assigned a specific texture coordinate.
+
+In \texttt{WebGLCanvas.tsx}, this is set up as follows:
+\begin{verbatim}
+// Vertex Positions (Clip Space)
+const positions = [ -1.0, -1.0,  1.0, -1.0, -1.0,  1.0, ... ];
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), ...);
+
+// Texture Coordinates (UVs)
+const texCoords = [ 0.0, 1.0,  1.0, 1.0,  0.0, 0.0, ... ]; // Flipped Y
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texCoords), ...);
+\end{verbatim}
+These texture coordinates are passed from the vertex shader to the fragment shader, where they are interpolated across the surface of the polygon. The fragment shader then uses the interpolated coordinate to look up the corresponding color (texel) from the bound texture, effectively "painting" the image onto the geometry. This process is detailed further in the Texture Mapping subsection below.
+
+\section{Geometric Transformations (WebGL Frontend)}
+
+The frontend leverages WebGL and the \texttt{gl-matrix} library to apply 2D geometric transformations to the displayed image geometry. These transformations are achieved using 4x4 matrices operating on homogeneous coordinates, allowing translation, rotation, scaling, and shearing to be combined efficiently through matrix multiplication.
+
+The core geometric transformation happens in the vertex shader (\texttt{frontend/src/components/WebGLCanvas.tsx}):
+\begin{verbatim}
+attribute vec2 a_position; // Input vertex position
+attribute vec2 a_texCoord; // Input texture coordinate
+uniform mat4 u_matrix;     // Combined transformation matrix
+varying vec2 v_texCoord;   // Pass texCoord to fragment shader
+
+void main() {
+  // Apply the transformation matrix to the vertex position
+  gl_Position = u_matrix * vec4(a_position, 0.0, 1.0);
+  // Pass the texture coordinate through without modification
+  v_texCoord = a_texCoord;
+}
+\end{verbatim}
+Here, \texttt{a\_position} is the original 2D vertex position, extended to a 4D homogeneous coordinate \texttt{vec4(a\_position, 0.0, 1.0)}. The \texttt{u\_matrix} is the final 4x4 transformation matrix calculated in \texttt{frontend/src/App.tsx}. The texture coordinate \texttt{a\_texCoord} is simply passed along to the fragment shader via the varying \texttt{v\_texCoord}.
+
+The \texttt{App.tsx} component calculates individual transformation matrices and combines them:
+
+\subsection{Translation}
+A translation by $(t_x, t_y)$ pixels is converted to clip space coordinates (ranging from -1 to +1) and represented by the matrix:
+\[
+T =
+\begin{pmatrix}
+1 & 0 & 0 & t_{cx} \\
+0 & 1 & 0 & t_{cy} \\
+0 & 0 & 1 & 0 \\
+0 & 0 & 0 & 1
+\end{pmatrix}
+\quad \text{where} \quad
+t_{cx} = \frac{t_x \times 2}{\text{canvasWidth}}, \quad
+t_{cy} = \frac{-t_y \times 2}{\text{canvasHeight}}
+\]
+The negation and scaling for $t_{cy}$ account for the inverted Y-axis and the [-1, 1] range in clip space. This is calculated using \texttt{mat4.translate}.
+
+\subsection{Rotation}
+Rotation by an angle $\theta$ around the Z-axis (perpendicular to the screen) is achieved using \texttt{mat4.rotateZ}:
+\[
+R_z(\theta) =
+\begin{pmatrix}
+\cos\theta & -\sin\theta & 0 & 0 \\
+\sin\theta & \cos\theta & 0 & 0 \\
+0 & 0 & 1 & 0 \\
+0 & 0 & 0 & 1
+\end{pmatrix}
+\]
+Note: The code uses \texttt{glMatrix.toRadian} and applies a negative rotation (\texttt{-rotation}) likely due to coordinate system conventions or user input interpretation.
+
+\subsection{Scaling}
+Scaling by factors $(s_x, s_y)$ is represented by:
+\[
+S =
+\begin{pmatrix}
+s_x & 0 & 0 & 0 \\
+0 & s_y & 0 & 0 \\
+0 & 0 & 1 & 0 \\
+0 & 0 & 0 & 1
+\end{pmatrix}
+\]
+The \texttt{App.tsx} code handles horizontal and vertical flips by incorporating negative signs into $s_x$ and $s_y$ before creating the matrix with \texttt{mat4.scale}.
+
+\subsection{Shearing}
+A 2D shear transformation with factors $(sh_x, sh_y)$ is embedded in a 4x4 matrix. The implementation in \texttt{App.tsx} uses \texttt{mat4.fromValues} corresponding to:
+\[
+Sh =
+\begin{pmatrix}
+1 & sh_y & 0 & 0 \\
+sh_x & 1 & 0 & 0 \\
+0 & 0 & 1 & 0 \\
+0 & 0 & 0 & 1
+\end{pmatrix}
+\]
+This matrix maps a point $(x, y)$ to $(x + sh_y \cdot y, y + sh_x \cdot x)$.
+
+\subsection{Matrix Combination}
+The individual matrices are combined through multiplication in \texttt{App.tsx} to produce the final \texttt{transformMatrix}. The order of multiplication is crucial and determines the sequence of transformations applied. The code implements the order: Scale $\rightarrow$ Shear $\rightarrow$ Rotate $\rightarrow$ Translate.
+\[
+M_{\text{combined}} = T \cdot R_z \cdot Sh \cdot S
+\]
+This combined matrix is then passed as the \texttt{u\_matrix} uniform to the vertex shader.
+
+\subsection{Determinant and Area Scaling}
+An important property of a linear transformation matrix is its determinant. For a 2D transformation represented by the upper-left 2x2 submatrix of the 4x4 homogeneous matrix, the absolute value of its determinant indicates the factor by which the area of a shape is scaled under that transformation.
+
+Let the combined transformation matrix $M_{\text{combined}}$ (calculated in \texttt{App.tsx} as \texttt{transformMatrix}) have the form incorporating scaling, shearing, and rotation components:
+\[
+M_{\text{combined}} = T \cdot R_z \cdot Sh \cdot S =
+\begin{pmatrix}
+a & c & 0 & t_x \\
+b & d & 0 & t_y \\
+0 & 0 & 1 & 0 \\
+0 & 0 & 0 & 1
+\end{pmatrix}
+\]
+The relevant 2x2 submatrix governing the linear part of the transformation (scaling, rotation, shear) is $M_{linear} = \begin{pmatrix} a & c \\ b & d \end{pmatrix}$. The determinant of this submatrix, $\det(M_{linear}) = ad - bc$, quantifies the change in area. Specifically, the area scaling factor is $|\det(M_{linear})| = |ad - bc|$.
+
+While the TinyIMG code (\texttt{App.tsx} or \texttt{WebGLCanvas.tsx}) does not explicitly compute the value of this determinant for display or other calculations, the geometric \textit{effect} of the determinant is fundamental to how the image appears scaled on screen. When the \texttt{transformMatrix} is applied to the vertices in the vertex shader:
+\begin{verbatim}
+gl_Position = u_matrix * vec4(a_position, 0.0, 1.0);
+\end{verbatim}
+the resulting vertex positions (\texttt{gl\_Position}) define a transformed shape whose area in clip space has been scaled relative to the original shape's area by the factor $|\det(M_{linear})|$. This is how transformations involving scaling ($S$) and shearing ($Sh$) visually alter the perceived size of the image on the canvas, as their corresponding matrices generally have determinants not equal to 1. Pure rotation ($R_z$) has a determinant of 1, correctly reflecting that rotation preserves area. The application of the combined matrix implicitly utilizes this property to render the final scaled and transformed image geometry.
+
+\subsection{Texture Mapping}
+As mentioned in Section 2.2, texture coordinates link the geometry vertices to points on the 2D image texture. These coordinates are interpolated across the faces of the geometric primitives (triangles in this case) during rasterization. The fragment shader receives these interpolated coordinates and uses them to sample the texture.
+
+The fragment shader in \texttt{WebGLCanvas.tsx} performs this lookup:
+\begin{verbatim}
+precision mediump float;
+uniform sampler2D u_image; // The image texture
+varying vec2 v_texCoord;   // Interpolated texture coordinate from vertex shader
+
+void main() {
+  // Look up the color from the texture at the interpolated coordinate
+  gl_FragColor = texture2D(u_image, v_texCoord);
+}
+\end{verbatim}
+The \texttt{texture2D} function takes the texture sampler (\texttt{u\_image}) and the interpolated texture coordinate (\texttt{v\_texCoord}) and returns the color (texel) of the image at that specific point. This color becomes the final color of the fragment (pixel) on the screen. This mechanism allows the 2D image to be "wrapped" onto the potentially transformed 2D quad defined by the vertices. The transformation matrix \texttt{u\_matrix} affects the vertex positions (\texttt{gl\_Position}), while the texture coordinates (\texttt{v\_texCoord}) determine which part of the source image is sampled for each resulting pixel.
+
+\section{Image Filtering (Go Backend)}
+
+The Go backend (\texttt{backend/main.go}) implements several common image filters using the principle of 2D convolution. Convolution involves sliding a small matrix, known as a kernel or filter, over the image and computing a weighted sum of the pixel values in the kernel's neighborhood for each pixel.
+
+The \texttt{applyFilter} function defines 3x3 kernels for various effects:
+
+\begin{itemize}
+    \item \textbf{Blur (Box Blur):} Averages neighbor pixels.
+    \[ K_{\text{blur}} = \frac{1}{9} \begin{pmatrix} 1 & 1 & 1 \\ 1 & 1 & 1 \\ 1 & 1 & 1 \end{pmatrix} \]
+    \item \textbf{Sharpen:} Enhances edges by emphasizing differences with neighbors.
+    \[ K_{\text{sharpen}} = \begin{pmatrix} 0 & -1 & 0 \\ -1 & 5 & -1 \\ 0 & -1 & 0 \end{pmatrix} \]
+    \item \textbf{Edge Detection (Laplacian-like):} Highlights areas of rapid intensity change.
+    \[ K_{\text{edge}} = \begin{pmatrix} -1 & -1 & -1 \\ -1 & 8 & -1 \\ -1 & -1 & -1 \end{pmatrix} \]
+    \item \textbf{Emboss:} Creates a raised or lowered effect based on edge direction.
+    \[ K_{\text{emboss}} = \begin{pmatrix} -2 & -1 & 0 \\ -1 & 1 & 1 \\ 0 & 1 & 2 \end{pmatrix} \]
+\end{itemize}
+
+The convolution operation for a pixel at $(x, y)$ and a channel $c$ is mathematically defined as:
+\[
+P'_{\text{out}}(x, y, c) = \sum_{i=-k}^{k} \sum_{j=-k}^{k} K(i, j) \cdot P_{\text{in}}(x+i, y+j, c)
+\]
+where $P_{\text{in}}$ is the input image, $P'_{\text{out}}$ is the output pixel value before clamping, $K$ is the kernel, and $k$ is typically $\lfloor \texttt{kernel\_size} / 2 \rfloor$ (1 for a 3x3 kernel). The Go code implements this by iterating through the kernel dimensions (\texttt{fx}, \texttt{fy}) and the corresponding image neighborhood (\texttt{sx}, \texttt{sy}), accumulating the weighted sum (\texttt{sum += sampleValue * filter[filterIndex]}). Boundary handling (clamping coordinates) and clamping the final result to the [0, 255] range are also performed. The process is applied independently to the R, G, and B channels, while the Alpha channel is usually copied directly.
+
+\section{Image Compression via SVD (Go Backend)}
+
+Singular Value Decomposition (SVD) is a powerful matrix factorization technique used in the Go backend (\texttt{backend/main.go}, \texttt{compressSVD} function) for lossy image compression. It decomposes a matrix (representing a single color channel) into three other matrices.
+
+For an $H \times W$ matrix $M$ representing a color channel, its SVD is:
+\[ M = U S V^T \]
+where:
+\begin{itemize}
+    \item $U$ is an $H \times H$ orthogonal matrix (columns are left singular vectors).
+    \item $S$ is an $H \times W$ diagonal matrix containing the singular values ($\sigma_i$) in descending order ($\sigma_1 \ge \sigma_2 \ge \dots \ge 0$).
+    \item $V^T$ is the transpose of a $W \times W$ orthogonal matrix $V$ (rows are right singular vectors).
+\end{itemize}
+
+The key idea for compression is that the matrix $M$ can be approximated by using only the first $k$ singular values and the corresponding first $k$ columns of $U$ and $V$. This is known as a low-rank approximation:
+\[ M_k = U_k S_k V_k^T \]
+where:
+\begin{itemize}
+    \item $U_k$ is the $H \times k$ matrix containing the first $k$ columns of $U$.
+    \item $S_k$ is the $k \times k$ diagonal matrix containing the first $k$ singular values ($\sigma_1, \dots, \sigma_k$).
+    \item $V_k^T$ is the $k \times W$ matrix containing the first $k$ rows of $V^T$ (or first $k$ columns of $V$, transposed).
+\end{itemize}
+The rank $k$ is a parameter chosen by the user (via the \texttt{svdRank} slider in the UI). A smaller $k$ leads to greater compression but lower image fidelity, as less information from the original matrix is retained.
+
+The \texttt{compressMatrixSVD} function in \texttt{main.go} performs these steps using \texttt{gonum/mat}:
+1.  Factorizes the channel matrix $M$ using \texttt{svd.Factorize(m, mat.SVDFull)}.
+2.  Extracts $U$, $S$ (as a slice of values), and $V$.
+3.  Constructs the truncated matrices $U_k$, $S_k$ (diagonal), and $V_k$.
+4.  Computes the approximated matrix $M_k$ via matrix multiplications: \texttt{temp.Mul(ur, sr)} followed by \texttt{result.Mul(\&temp, vr.T())}.
+5.  This process is applied in parallel to the R, G, B, and A channel matrices.
+6.  The resulting approximated matrices are then reassembled into the final compressed image pixel data, clamping values to [0, 255].
+
+\section{Conclusion}
+
+Matrix mathematics is integral to the functionality of the TinyIMG project. From the 4x4 matrices driving geometric transformations in the WebGL frontend using \texttt{gl-matrix}, to the 3x3 convolution kernels applying image filters and the sophisticated application of Singular Value Decomposition for compression via \texttt{gonum/mat} in the Go backend, linear algebra provides the essential tools. These techniques demonstrate how abstract mathematical concepts are translated into practical implementations for image representation, manipulation, and optimization in a modern web application. The use of specialized libraries like \texttt{gl-matrix} and \texttt{gonum/mat} significantly simplifies the implementation of these complex matrix operations.
+
+\end{document}
