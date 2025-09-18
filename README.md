@@ -35,7 +35,7 @@ A high-performance image processing application built with WebAssembly and React
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/tinyimg.git
+git clone https://github.com/yamirghofran/tinyimg.git
 cd tinyimg
 ```
 
