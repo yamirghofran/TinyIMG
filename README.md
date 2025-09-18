@@ -1,7 +1,8 @@
 # TinyIMG
 
 A high-performance image processing application built with WebAssembly and React.
-![Uploading CleanShot 2025-09-18 at 18.10.21@2x.png…]()
+<img width="2028" height="1152" alt="CleanShot 2025-09-18 at 18 11 18@2x" src="https://github.com/user-attachments/assets/aadf1ece-1e1f-4d81-94f6-d038fa59f95b" />
+
 
 
 ## Features
